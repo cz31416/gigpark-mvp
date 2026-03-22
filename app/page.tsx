@@ -1,65 +1,1668 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { createClient } from "@/lib/supabase/client";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  MapPin,
+  Search,
+  SlidersHorizontal,
+  Star,
+  Wallet,
+  MessageSquare,
+  ShieldCheck,
+  ArrowLeft,
+  Plus,
+  Filter,
+  Clock,
+  Car,
+  Home,
+  CreditCard,
+  CalendarDays,
+  X,
+  Repeat2,
+  ReceiptText,
+} from "lucide-react";
+
+// GigPark — single-file MVP prototype (React + Tailwind)
+// - No backend; uses mock data
+// - Flow: home, search (list/map), spot detail (availability + duration), checkout, bookings, chat, profile
+
+const cx = (...c) => c.filter(Boolean).join(" ");
+
+const money = (n: number) =>
+  new Intl.NumberFormat("en-CA", {
+    style: "currency",
+    currency: "CAD",
+  }).format(n);
+
+const days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+const DAY_TO_JS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+
+function nextOccurrence(dayKey, hhmm) {
+  // returns Date for next occurrence of dayKey at hh:mm (local)
+  const now = new Date();
+  const targetDow = DAY_TO_JS[dayKey];
+  const [hh, mm] = (hhmm || "09:00").split(":").map((x) => Number(x));
+
+  const d = new Date(now);
+  d.setSeconds(0);
+  d.setMilliseconds(0);
+  d.setHours(hh, mm, 0, 0);
+
+  const todayDow = d.getDay();
+  let delta = (targetDow - todayDow + 7) % 7;
+  if (delta === 0 && d.getTime() <= now.getTime()) delta = 7;
+  d.setDate(d.getDate() + delta);
+  return d;
+}
+
+function fmtDateTime(d: Date | string) {
+  if (!(d instanceof Date)) d = new Date(d);
+  return d.toLocaleString("en-CA", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function hoursBetween(a, b) {
+  const ms = b.getTime() - a.getTime();
+  return ms / (1000 * 60 * 60);
+}
+
+function countdownLabel(startAt) {
+  const now = new Date();
+  const h = hoursBetween(now, startAt);
+  if (h <= 0) return "started";
+  if (h < 1) return "<1hr";
+  if (h < 2) return "<2hr";
+  return "2hr+";
+}
+
+const TAX = { gst: 0.05, qst: 0.09975 };
+
+const MOCK_MESSAGES = [
+  { from: "alex", side: "them", text: "hi! what time are you arriving?" },
+  { from: "you", side: "me", text: "around 9:15am. is the driveway entrance on the left?" },
+  { from: "alex", side: "them", text: "yes—left side. i'll send exact pin after booking." },
+];
+
+function Badge({ children, tone = "neutral" }) {
+  const map = {
+    neutral: "bg-zinc-100 text-zinc-700",
+    good: "bg-emerald-50 text-emerald-700",
+    warn: "bg-amber-50 text-amber-700",
+    bad: "bg-rose-50 text-rose-700",
+    info: "bg-sky-50 text-sky-700",
+  };
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <span
+      className={cx(
+        "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
+        map[tone]
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+function DifficultyPill({ level }) {
+  const tone = level === "Easy" ? "Good" : level === "Medium" ? "Warn" : "Bad";
+  return <Badge tone={tone}>{level}</Badge>;
+}
+
+function TopNav({ view, setView }) {
+  const tabs = [
+    { id: "home", label: "Home" },
+    { id: "search", label: "Find Parking" },
+    { id: "host", label: "List a Spot" },
+    { id: "bookings", label: "Bookings" },
+    { id: "chat", label: "Chat" },
+    { id: "profile", label: "Profile" },
+  ];
+  return (
+    <div className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-zinc-200">
+      <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
+        <button onClick={() => setView("home")} className="flex items-center gap-2">
+          <img
+            src="/20260122 - Logo.png"
+            alt="GigPark"
+            className="h-9 w-9 rounded-2xl object-cover"
+          />
+          <div className="leading-tight">
+            <div className="text-sm font-semibold">GigPark</div>
+            <div className="text-xs text-zinc-500">Peer-to-peer residential parking</div>
+          </div>
+        </button>
+
+        <div className="hidden md:flex items-center gap-1">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setView(t.id)}
+              className={cx(
+                "px-3 py-2 rounded-xl text-sm",
+                view === t.id ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-100"
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="md:hidden flex items-center gap-2">
+          <button
+            onClick={() => setView("search")}
+            className={cx(
+              "h-9 w-9 rounded-xl grid place-items-center",
+              view === "search" ? "bg-zinc-900 text-white" : "bg-zinc-100"
+            )}
+            aria-label="find"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setView("host")}
+            className={cx(
+              "h-9 w-9 rounded-xl grid place-items-center",
+              view === "host" ? "bg-zinc-900 text-white" : "bg-zinc-100"
+            )}
+            aria-label="host"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setView("bookings")}
+            className={cx(
+              "h-9 w-9 rounded-xl grid place-items-center",
+              view === "bookings" ? "bg-zinc-900 text-white" : "bg-zinc-100"
+            )}
+            aria-label="bookings"
+          >
+            <CalendarDays className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setView("chat")}
+            className={cx(
+              "h-9 w-9 rounded-xl grid place-items-center",
+              view === "chat" ? "bg-zinc-900 text-white" : "bg-zinc-100"
+            )}
+            aria-label="chat"
+          >
+            <MessageSquare className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Hero({ onGetParking, onEarnMoney }) {
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-10">
+      <div className="grid gap-8 md:grid-cols-2 items-center">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-700">
+            <ShieldCheck className="h-4 w-4" />
+            Owner-authorized • Neighborhood-first • Simple booking
+          </div>
+          <h1 className="mt-4 text-3xl md:text-5xl font-semibold tracking-tight text-zinc-900">
+            Park near where you actually need to be.
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="mt-3 text-zinc-600 leading-relaxed">
+            GigPark helps residents rent out unused driveway and condo spots; so drivers can book reliable parking by the hour, day, or month.
           </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button
+              onClick={onGetParking}
+              className="px-5 py-3 rounded-2xl bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800"
+            >
+              Get Parking
+            </button>
+            <button
+              onClick={onEarnMoney}
+              className="px-5 py-3 rounded-2xl bg-white border border-zinc-300 text-zinc-900 text-sm font-medium hover:bg-zinc-50"
+            >
+              Earn Money
+            </button>
+          </div>
+          <div className="mt-6 grid grid-cols-3 gap-3">
+            <div className="rounded-2xl border border-zinc-200 p-3">
+              <div className="text-xs text-zinc-500">Avg booking</div>
+              <div className="mt-1 text-lg font-semibold">10–30 min</div>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 p-3">
+              <div className="text-xs text-zinc-500">Trust</div>
+              <div className="mt-1 text-lg font-semibold">Ratings + Chat</div>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 p-3">
+              <div className="text-xs text-zinc-500">Payments</div>
+              <div className="mt-1 text-lg font-semibold">In-App</div>
+            </div>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+        <div className="relative">
+          <div className="rounded-3xl overflow-hidden border border-zinc-200 shadow-sm">
+            <img
+              src="https://images.unsplash.com/photo-1528920304568-6f1f8a4d52af?auto=format&fit=crop&w=1600&q=60"
+              alt="street parking"
+              className="h-[420px] w-full object-cover"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          </div>
+          <div className="absolute -bottom-5 left-6 right-6 rounded-3xl bg-white border border-zinc-200 shadow-sm p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold truncate">driveway spot — 2 min to HEC</div>
+                <div className="mt-1 flex items-center gap-2 text-xs text-zinc-600">
+                  <MapPin className="h-3.5 w-3.5" />
+                  <span className="truncate">Côte-des-Neiges</span>
+                  <span className="text-zinc-300">•</span>
+                  <span className="truncate">{money(4)}/hr</span>
+                </div>
+              </div>
+              <DifficultyPill level="easy" />
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-zinc-600">
+                <Star className="h-4 w-4" />
+                <span>4.8 (31)</span>
+              </div>
+              <button className="text-xs font-medium px-3 py-2 rounded-xl bg-zinc-900 text-white hover:bg-zinc-800">
+                book now
+              </button>
+            </div>
+          </div>
         </div>
-      </main>
+      </div>
+    </div>
+  );
+}
+
+function FiltersBar({ q, setQ, area, setArea, priceMax, setPriceMax, viewMode, setViewMode }) {
+  return (
+    <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+      <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+        <div className="flex-1 flex items-center gap-2 rounded-2xl bg-zinc-100 px-3 py-2">
+          <Search className="h-4 w-4 text-zinc-600" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="search: metro, campus, neighborhood"
+            className="w-full bg-transparent outline-none text-sm"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 px-3 py-2">
+            <MapPin className="h-4 w-4 text-zinc-600" />
+            <select value={area} onChange={(e) => setArea(e.target.value)} className="text-sm outline-none bg-transparent">
+              <option value="">all areas</option>
+              <option value="Côte-des-Neiges">Côte-des-Neiges</option>
+              <option value="Outremont">Outremont</option>
+              <option value="Plateau">Plateau</option>
+              <option value="Downtown">Downtown</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 px-3 py-2">
+            <SlidersHorizontal className="h-4 w-4 text-zinc-600" />
+            <span className="text-sm">max {money(priceMax)}/hr</span>
+            <input
+              type="range"
+              min={1}
+              max={100}
+              value={priceMax}
+              onChange={(e) => setPriceMax(Number(e.target.value))}
+              className="w-28"
+            />
+          </div>
+          <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 px-3 py-2">
+            <Filter className="h-4 w-4 text-zinc-600" />
+            <button onClick={() => setViewMode(viewMode === "list" ? "map" : "list")} className="text-sm font-medium">
+              {viewMode === "list" ? "switch to map" : "switch to list"}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
+        <Badge tone="info">filters: date • price • location</Badge>
+        <Badge>no exact address until booking</Badge>
+        <Badge tone="good">owner-authorized spots only</Badge>
+      </div>
+    </div>
+  );
+}
+
+function ListingCard({ spot, onOpen }) {
+  return (
+    <button
+      onClick={() => onOpen(spot)}
+      className="text-left rounded-3xl overflow-hidden border border-zinc-200 bg-white hover:shadow-sm transition"
+    >
+      <div className="h-44 w-full overflow-hidden">
+        <img
+          src={spot.photo || "/placeholder.png"}
+          alt={spot.title}
+          className="h-full w-full object-cover"
+          onError={(e) => {
+            e.currentTarget.src = "/placeholder.png";
+          }}
+        />
+      </div>
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold truncate">{spot.title}</div>
+            <div className="mt-1 flex items-center gap-2 text-xs text-zinc-600">
+              <MapPin className="h-3.5 w-3.5" />
+              <span className="truncate">{spot.area}</span>
+              <span className="text-zinc-300">•</span>
+              <span className="truncate">{money(spot.priceHour)}/hr</span>
+            </div>
+          </div>
+          <DifficultyPill level={spot.difficulty} />
+        </div>
+        <div className="mt-3 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs text-zinc-600">
+            <Star className="h-4 w-4" />
+            <span>
+              {spot.host.rating.toFixed(1)} ({spot.host.reviews})
+            </span>
+          </div>
+          <div className="text-xs font-medium text-zinc-900">{money(spot.priceDay)}/day</div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function BubbleMap({ spots, onOpen }) {
+  // stylized “map” with bubbles (no external map API)
+  const bounds = useMemo(() => {
+    const lats = spots.map((s) => s.lat);
+    const lngs = spots.map((s) => s.lng);
+    return {
+      minLat: Math.min(...lats),
+      maxLat: Math.max(...lats),
+      minLng: Math.min(...lngs),
+      maxLng: Math.max(...lngs),
+    };
+  }, [spots]);
+
+  const toXY = (lat, lng) => {
+    const x = ((lng - bounds.minLng) / (bounds.maxLng - bounds.minLng || 1)) * 100;
+    const y = (1 - (lat - bounds.minLat) / (bounds.maxLat - bounds.minLat || 1)) * 100;
+    return { x, y };
+  };
+
+  return (
+    <div className="rounded-3xl border border-zinc-200 bg-white overflow-hidden">
+      <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <MapPin className="h-4 w-4" />
+          <div className="text-sm font-semibold">map search</div>
+        </div>
+        <div className="text-xs text-zinc-600">bubble size = price • badge color = difficulty</div>
+      </div>
+      <div className="relative h-[420px] bg-gradient-to-br from-zinc-50 to-zinc-100">
+        <div className="absolute inset-0 opacity-40">
+          <div className="absolute left-0 right-0 top-24 h-1 bg-zinc-300 rotate-2" />
+          <div className="absolute left-0 right-0 top-44 h-1 bg-zinc-300 -rotate-3" />
+          <div className="absolute left-0 right-0 top-64 h-1 bg-zinc-300 rotate-1" />
+          <div className="absolute top-0 bottom-0 left-1/4 w-1 bg-zinc-300 -rotate-2" />
+          <div className="absolute top-0 bottom-0 left-2/3 w-1 bg-zinc-300 rotate-3" />
+        </div>
+
+        {spots.map((s) => {
+          const { x, y } = toXY(s.lat, s.lng);
+          const size = 26 + (s.priceHour - 2) * 6;
+          const ring =
+            s.difficulty === "easy" ? "ring-emerald-300" : s.difficulty === "medium" ? "ring-amber-300" : "ring-rose-300";
+          return (
+            <button
+              key={s.id}
+              onClick={() => onOpen(s)}
+              className={cx(
+                "absolute grid place-items-center rounded-full bg-white/90 text-xs font-semibold ring-2 shadow-sm hover:shadow transition",
+                ring
+              )}
+              style={{
+                left: `calc(${x}% - ${size / 2}px)`,
+                top: `calc(${y}% - ${size / 2}px)`,
+                width: size,
+                height: size,
+              }}
+              title={s.title}
+            >
+              {money(s.priceHour)}
+            </button>
+          );
+        })}
+
+        <div className="absolute bottom-4 left-4 rounded-2xl bg-white border border-zinc-200 px-3 py-2 text-xs text-zinc-700 flex items-center gap-2">
+          <SlidersHorizontal className="h-4 w-4" />
+          <span>map filters: price • availability • car size</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SpotDetail({ spot, onBack, onCheckout }) {
+  const [day, setDay] = useState("mon");
+  const [duration, setDuration] = useState("2h");
+
+  const av = spot.availability?.[day];
+  const durationHours = duration === "1h" ? 1 : duration === "2h" ? 2 : duration === "4h" ? 4 : duration === "8h" ? 8 : 24;
+  const subtotal = spot.priceHour * durationHours;
+  const tax = subtotal * (TAX.gst + TAX.qst);
+  const total = subtotal + tax;
+
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-6">
+      <button onClick={onBack} className="inline-flex items-center gap-2 text-sm text-zinc-700 hover:text-zinc-900">
+        <ArrowLeft className="h-4 w-4" />
+        back to search
+      </button>
+
+      <div className="mt-4 grid gap-6 md:grid-cols-[1.2fr_0.8fr]">
+        <div className="rounded-3xl overflow-hidden border border-zinc-200 bg-white">
+          <div className="h-64 w-full overflow-hidden">
+            <img
+              src={spot.photo || "/placeholder.png"}
+              alt={spot.title}
+              className="h-full w-full object-cover"
+              onError={(e) => {
+                e.currentTarget.src = "/placeholder.png";
+              }}
+            />
+          </div>
+          <div className="p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-xl font-semibold">{spot.title}</div>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
+                  <span className="inline-flex items-center gap-1">
+                    <MapPin className="h-4 w-4" /> {spot.area}
+                  </span>
+                  <span className="text-zinc-300">•</span>
+                  <span className="truncate">{spot.addressHint}</span>
+                </div>
+              </div>
+              <DifficultyPill level={spot.difficulty} />
+            </div>
+
+            <div className="mt-4 grid gap-2">
+              <div className="text-sm text-zinc-700">{spot.description}</div>
+              <div className="flex flex-wrap gap-2">
+                {spot.features.map((f) => (
+                  <Badge key={f}>{f}</Badge>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold">host</div>
+                <div className="flex items-center gap-2 text-sm text-zinc-700">
+                  <Star className="h-4 w-4" />
+                  <span>
+                    {spot.host.rating.toFixed(1)} ({spot.host.reviews})
+                  </span>
+                </div>
+              </div>
+              <div className="mt-2 text-sm text-zinc-600">{spot.host.name} • responds fast • exact address after booking</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-200 bg-white p-5 h-fit">
+          <div className="text-sm text-zinc-600">price</div>
+          <div className="mt-1 text-2xl font-semibold">{money(spot.priceHour)}/hr</div>
+          <div className="mt-1 text-sm text-zinc-600">{money(spot.priceDay)}/day</div>
+
+          <div className="mt-4 grid gap-3">
+            <div>
+              <div className="text-xs text-zinc-500 mb-1">choose day</div>
+              <div className="flex flex-wrap gap-2">
+                {days.map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => setDay(d)}
+                    className={cx(
+                      "px-3 py-2 rounded-xl text-sm",
+                      day === d ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700"
+                    )}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs text-zinc-500 mb-1">availability</div>
+              <div className="flex items-center gap-2 text-sm text-zinc-700">
+                <Clock className="h-4 w-4" />
+                <span>{av ? `${av[0]}–${av[1]}` : "not available"}</span>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs text-zinc-500 mb-1">duration</div>
+              <div className="grid grid-cols-5 gap-2">
+                {[
+                  { k: "1h", v: 1 },
+                  { k: "2h", v: 2 },
+                  { k: "4h", v: 4 },
+                  { k: "8h", v: 8 },
+                  { k: "24h", v: 24 },
+                ].map((x) => (
+                  <button
+                    key={x.k}
+                    onClick={() => setDuration(`${x.k}`)}
+                    className={cx(
+                      "px-3 py-2 rounded-xl text-sm",
+                      duration === x.k ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700"
+                    )}
+                  >
+                    {x.k}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-zinc-600">subtotal</span>
+                <span className="font-semibold">{money(subtotal)}</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-sm">
+                <span className="text-zinc-600">gst + qst</span>
+                <span className="font-semibold">{money(tax)}</span>
+              </div>
+              <div className="mt-2 pt-2 border-t border-zinc-200 flex items-center justify-between text-sm">
+                <span className="text-zinc-600">total</span>
+                <span className="font-semibold">{money(total)}</span>
+              </div>
+              <div className="mt-2 text-xs text-zinc-500">final details confirmed in chat. payment required to confirm.</div>
+            </div>
+
+            <button
+              disabled={!av}
+              onClick={() => onCheckout({ spot, day, durationHours, subtotal, tax, total, startAt: nextOccurrence(day, av?.[0] || "09:00") })}
+              className={cx(
+                "w-full px-4 py-3 rounded-2xl text-sm font-medium",
+                av ? "bg-zinc-900 text-white hover:bg-zinc-800" : "bg-zinc-200 text-zinc-500 cursor-not-allowed"
+              )}
+            >
+              book & pay
+            </button>
+          </div>
+
+          <div className="mt-4 text-xs text-zinc-600 flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4" />
+            address stays masked until booking
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CheckoutModal({ open, onClose, payload, hasPaymentMethod, onConfirm }) {
+  if (!open) return null;
+  const { spot, day, durationHours, subtotal, tax, total, startAt } = payload;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 grid place-items-center p-4">
+      <div className="w-full max-w-lg rounded-3xl bg-white border border-zinc-200 shadow-xl overflow-hidden">
+        <div className="p-5 border-b border-zinc-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Wallet className="h-5 w-5" />
+            <div>
+              <div className="text-sm font-semibold">checkout</div>
+              <div className="text-xs text-zinc-500">pay to confirm booking</div>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-sm text-zinc-600 hover:text-zinc-900">
+            close
+          </button>
+        </div>
+
+        <div className="p-5 grid gap-4">
+          <div className="rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
+            <div className="text-sm font-semibold">{spot.title}</div>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
+              <span className="inline-flex items-center gap-1">
+                <MapPin className="h-4 w-4" /> {spot.area}
+              </span>
+              <span className="text-zinc-300">•</span>
+              <span>{day}</span>
+              <span className="text-zinc-300">•</span>
+              <span>{durationHours} hours</span>
+            </div>
+            <div className="mt-2 text-xs text-zinc-500">starts: {fmtDateTime(startAt)}</div>
+          </div>
+
+          <div className="grid gap-2">
+            <div className="text-xs text-zinc-500">payment method</div>
+            <div className="rounded-2xl border border-zinc-200 p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm">
+                <CreditCard className="h-4 w-4" />
+                <span>{hasPaymentMethod ? "card ending •••• 1234" : "no payment method"}</span>
+              </div>
+              <button className="text-sm text-zinc-700 hover:text-zinc-900">change</button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-200 p-4">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-zinc-600">subtotal</span>
+              <span className="font-semibold">{money(subtotal)}</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between text-sm">
+              <span className="text-zinc-600">gst + qst</span>
+              <span className="font-semibold">{money(tax)}</span>
+            </div>
+            <div className="mt-2 pt-2 border-t border-zinc-200 flex items-center justify-between text-sm">
+              <span className="text-zinc-600">total</span>
+              <span className="font-semibold">{money(total)}</span>
+            </div>
+            <div className="mt-2 text-xs text-zinc-500">funds are held until the booking window starts.</div>
+          </div>
+
+          <button
+            onClick={onConfirm}
+            disabled={!hasPaymentMethod}
+            className={cx(
+              "w-full px-4 py-3 rounded-2xl text-sm font-medium",
+              hasPaymentMethod ? "bg-zinc-900 text-white hover:bg-zinc-800" : "bg-zinc-200 text-zinc-500 cursor-not-allowed"
+            )}
+          >
+            confirm payment
+          </button>
+
+          {!hasPaymentMethod && (
+            <div className="text-xs text-rose-600">add a payment method in profile to complete checkout.</div>
+          )}
+
+          <div className="text-xs text-zinc-600">by paying, you agree this is a private, owner-authorized parking space.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SearchPage({ spots, onOpenSpot }) {
+  const [q, setQ] = useState("");
+  const [area, setArea] = useState("");
+  const [priceMax, setPriceMax] = useState(100);
+
+  useEffect(() => {
+    const highest = Math.max(100, ...spots.map((s) => Number(s.priceHour || 0)));
+    setPriceMax(highest);
+  }, [spots]);
+
+  const [viewMode, setViewMode] = useState("list");
+
+  const filtered = useMemo(() => {
+    return spots.filter((s) => {
+      const hitQ = !q || `${s.title} ${s.area} ${s.addressHint}`.toLowerCase().includes(q.toLowerCase());
+      const hitArea = !area || s.area === area;
+      const hitPrice = s.priceHour <= priceMax;
+      return hitQ && hitArea && hitPrice;
+    });
+  }, [spots, q, area, priceMax]);
+
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-6">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <div className="text-xl font-semibold">find parking</div>
+          <div className="text-sm text-zinc-600">search, filter, and book in minutes</div>
+        </div>
+        <div className="hidden md:flex items-center gap-2 text-xs text-zinc-600">
+          <Badge tone="good">Get Parking</Badge>
+          <Badge>earn money</Badge>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <FiltersBar
+          q={q}
+          setQ={setQ}
+          area={area}
+          setArea={setArea}
+          priceMax={priceMax}
+          setPriceMax={setPriceMax}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+        />
+      </div>
+
+      <div className="mt-6">
+        {viewMode === "map" ? (
+          <BubbleMap spots={filtered} onOpen={(spot) => onOpenSpot(spot)} />
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {filtered.map((s) => (
+              <ListingCard key={s.id} spot={s} onOpen={onOpenSpot} />
+            ))}
+          </div>
+        )}
+
+        {filtered.length === 0 && (
+          <div className="mt-8 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">no results—try widening filters.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HostPage({ onCreated }) {
+  const [errorMsg, setErrorMsg] = useState("");
+  const [title, setTitle] = useState("");
+  const [area, setArea] = useState("Côte-des-Neiges");
+  const [priceHour, setPriceHour] = useState(4);
+  const [priceDay, setPriceDay] = useState(20);
+  const [addressHint, setAddressHint] = useState("");
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState("");
+  const [difficulty, setDifficulty] = useState("Easy");
+  const [submitted, setSubmitted] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (photoPreview) {
+        URL.revokeObjectURL(photoPreview);
+      }
+    };
+  }, [photoPreview]);
+
+  const publishListing = async () => {
+    setErrorMsg("");
+    setSubmitted(false);
+
+    const cleanTitle = title.trim();
+    const cleanAddressHint = addressHint.trim();
+    const hour = Number(priceHour);
+    const day = Number(priceDay);
+
+    if (photo && !photo.type.startsWith("image/")) {
+      setErrorMsg("Please upload an image file.");
+      return;
+    }
+
+    if (photo && photo.size > 5 * 1024 * 1024) {
+      setErrorMsg("Image must be 5MB or smaller.");
+      return;
+    }
+
+    if (!cleanTitle) {
+      setErrorMsg("Please enter a title.");
+      return;
+    }
+
+    if (!area.trim()) {
+      setErrorMsg("Please select an area.");
+      return;
+    }
+
+    if (!cleanAddressHint) {
+      setErrorMsg("Please enter an address hint.");
+      return;
+    }
+
+    if (!Number.isFinite(hour) || hour <= 0) {
+      setErrorMsg("Price per hour must be greater than 0.");
+      return;
+    }
+
+    if (!Number.isFinite(day) || day <= 0) {
+      setErrorMsg("Price per day must be greater than 0.");
+      return;
+    }
+
+    if (hour > 100) {
+      setErrorMsg("Price per hour is too high. Please enter 100 CAD or less.");
+      return;
+    }
+
+    if (day > 500) {
+      setErrorMsg("Price per day is too high. Please enter 500 CAD or less.");
+      return;
+    }
+
+    if (day < hour) {
+      setErrorMsg("Price per day cannot be lower than price per hour.");
+      return;
+    }
+
+    setSaving(true);
+
+    const supabase = createClient();
+
+    let photoUrl = null;
+
+    if (photo) {
+      const fileExt = photo.name.split(".").pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("spot-photos")
+        .upload(fileName, photo);
+
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        setErrorMsg("Failed to upload image.");
+        setSaving(false);
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from("spot-photos")
+        .getPublicUrl(fileName);
+
+      photoUrl = publicUrlData.publicUrl;
+    }
+
+    const { error } = await supabase.from("spots").insert({
+      title: cleanTitle,
+      area,
+      price_hour: hour,
+      price_day: day,
+      address_hint: cleanAddressHint,
+      photo: photoUrl,
+      difficulty,
+    });
+
+    setSaving(false);
+
+    if (error) {
+      console.error("Insert error:", error);
+      setErrorMsg(error.message || "Failed to create listing.");
+      return;
+    }
+
+    setSubmitted(true);
+    setTitle("");
+    setArea("Côte-des-Neiges");
+    setPriceHour(4);
+    setPriceDay(20);
+    setAddressHint("");
+    setPhoto(null);
+    setPhotoPreview("");
+    setDifficulty("Easy");
+
+    await onCreated();
+  };
+
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-6">
+      <div>
+        <div className="text-xl font-semibold">List a Spot</div>
+        <div className="text-sm text-zinc-600">Earn money from your unused driveway or condo spot</div>
+      </div>
+
+      <div className="mt-6 grid gap-6 md:grid-cols-2">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+          <div className="text-sm font-semibold">Create Listing</div>
+
+          <div className="mt-4 grid gap-3">
+            <label className="grid gap-1">
+              <span className="text-xs text-zinc-500">Title</span>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="E.g., driveway spot near metro"
+                className={`rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 ${
+                  errorMsg.toLowerCase().includes("title")
+                    ? "border-red-300 focus:ring-red-100"
+                    : "border-zinc-200 focus:ring-zinc-200"
+                }`}
+              />
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-xs text-zinc-500">Area</span>
+              <select
+                value={area}
+                onChange={(e) => setArea(e.target.value)}
+                className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+              >
+                <option value="Côte-des-Neiges">Côte-des-Neiges</option>
+                <option value="Outremont">Outremont</option>
+                <option value="Plateau">Plateau</option>
+                <option value="Downtown">Downtown</option>
+              </select>
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-xs text-zinc-500">Price per hour (CAD)</span>
+              <input
+                type="number"
+                min={1}
+                value={priceHour}
+                onChange={(e) => setPriceHour(Number(e.target.value))}
+                className={`rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 ${
+                  errorMsg.toLowerCase().includes("hour")
+                    ? "border-red-300 focus:ring-red-100"
+                    : "border-zinc-200 focus:ring-zinc-200"
+                }`}
+              />
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-xs text-zinc-500">Price per day (CAD)</span>
+              <input
+                type="number"
+                min={1}
+                value={priceDay}
+                onChange={(e) => setPriceDay(Number(e.target.value))}
+                className={`rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 ${
+                  errorMsg.toLowerCase().includes("day")
+                    ? "border-red-300 focus:ring-red-100"
+                    : "border-zinc-200 focus:ring-zinc-200"
+                }`}
+              />
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-xs text-zinc-500">Address hint</span>
+              <input
+                value={addressHint}
+                onChange={(e) => setAddressHint(e.target.value)}
+                placeholder="E.g., near metro / behind church"
+                className={`rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 ${
+                  errorMsg.toLowerCase().includes("address")
+                    ? "border-red-300 focus:ring-red-100"
+                    : "border-zinc-200 focus:ring-zinc-200"
+                }`}
+              />
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-xs text-zinc-500">Photo (optional)</span>
+
+              <input
+                id="spot-photo-upload"
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] || null;
+                  setPhoto(file);
+
+                  if (photoPreview) {
+                    URL.revokeObjectURL(photoPreview);
+                  }
+
+                  if (file) {
+                    setPhotoPreview(URL.createObjectURL(file));
+                  } else {
+                    setPhotoPreview("");
+                  }
+                }}
+              />
+
+              <label
+                htmlFor="spot-photo-upload"
+                className="inline-flex w-fit cursor-pointer items-center rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                Choose Photo
+              </label>
+
+              {photo && (
+                <div className="text-xs text-zinc-500">
+                  selected: {photo.name}
+                </div>
+              )}
+
+              {photoPreview && (
+                <div className="mt-2 overflow-hidden rounded-2xl border border-zinc-200">
+                  <img
+                    src={photoPreview}
+                    alt="preview"
+                    className="h-40 w-full object-cover"
+                  />
+                </div>
+              )}
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-xs text-zinc-500">Difficulty</span>
+              <select
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value)}
+                className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+              >
+                <option value="Easy">Easy</option>
+                <option value="Medium">Medium</option>
+                <option value="Hard">Hard</option>
+              </select>
+            </label>
+
+            <div className="rounded-2xl bg-zinc-50 border border-zinc-200 p-4 text-sm text-zinc-700">
+              <div className="flex items-center gap-2 font-medium">
+                <Home className="h-4 w-4" /> Owner-authorized only
+              </div>
+              <div className="mt-1 text-xs text-zinc-600">
+                You control availability, rules, and who books. exact address stays hidden until a booking is confirmed.
+              </div>
+            </div>
+
+            <button
+              onClick={publishListing}
+              disabled={saving || !title.trim()}
+              className="px-4 py-3 rounded-2xl bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 disabled:bg-zinc-300"
+            >
+              {saving ? "Publishing..." : "Publish Listing"}
+            </button>
+
+            {errorMsg && (
+              <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                {errorMsg}
+              </div>
+            )}
+
+            {submitted && (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                Listing created successfully.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+          <div className="text-sm font-semibold">What makes a high-performing listing</div>
+          <div className="mt-4 grid gap-3 text-sm text-zinc-700">
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-2xl bg-zinc-100 grid place-items-center">
+                <Car className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="font-medium">Clear fit info</div>
+                <div className="text-zinc-600 text-sm">Sedan vs SUV, max height, tight turns</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-2xl bg-zinc-100 grid place-items-center">
+                <MapPin className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="font-medium">Simple directions</div>
+                <div className="text-zinc-600 text-sm">Entry side, gate code flow, landmarks</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-2xl bg-zinc-100 grid place-items-center">
+                <Star className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="font-medium">Ratings build trust</div>
+                <div className="text-zinc-600 text-sm">Fast replies + reliable availability</div>
+              </div>
+            </div>
+          </div>
+          <div className="mt-6 rounded-2xl bg-zinc-50 border border-zinc-200 p-4 text-xs text-zinc-600">
+            Tip: Start with a tight launch area (one neighborhood) to build liquidity faster.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChatPage({ onProposeDeal }) {
+  const [draft, setDraft] = useState("");
+  const [msgs, setMsgs] = useState(MOCK_MESSAGES);
+
+  const send = () => {
+    const t = draft.trim();
+    if (!t) return;
+    setMsgs((m) => [...m, { from: "you", side: "me", text: t }]);
+    setDraft("");
+  };
+
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-6">
+      <div className="grid gap-6 md:grid-cols-[320px_1fr]">
+        <div className="rounded-3xl border border-zinc-200 bg-white overflow-hidden">
+          <div className="p-4 border-b border-zinc-200">
+            <div className="text-sm font-semibold">messages</div>
+            <div className="text-xs text-zinc-500">your conversations</div>
+          </div>
+          <div className="p-2">
+            <button className="w-full text-left p-3 rounded-2xl bg-zinc-100">
+              <div className="text-sm font-semibold">alex</div>
+              <div className="text-xs text-zinc-600 truncate">hi! what time are you arriving?</div>
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-200 bg-white overflow-hidden">
+          <div className="p-4 border-b border-zinc-200 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold">alex</div>
+              <div className="text-xs text-zinc-500">convo head • booking details</div>
+            </div>
+            <button
+              onClick={() => onProposeDeal(30)}
+              className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-xs font-medium hover:bg-zinc-800"
+            >
+              propose deal for {money(30)}
+            </button>
+          </div>
+
+          <div className="p-4 h-[360px] overflow-auto space-y-2">
+            {msgs.map((m, idx) => (
+              <div key={idx} className={cx("flex", m.side === "me" ? "justify-end" : "justify-start")}>
+                <div
+                  className={cx(
+                    "max-w-[78%] rounded-2xl px-3 py-2 text-sm",
+                    m.side === "me" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-800"
+                  )}
+                >
+                  {m.text}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="p-4 border-t border-zinc-200">
+            <div className="flex items-center gap-2">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="type a message"
+                className="flex-1 rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                onKeyDown={(e) => (e.key === "Enter" ? send() : null)}
+              />
+              <button onClick={send} className="px-4 py-2 rounded-2xl bg-zinc-900 text-white text-sm hover:bg-zinc-800">
+                send
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfilePage({ hasPaymentMethod, setHasPaymentMethod, onGoBookings }) {
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-6">
+      <div className="grid gap-6 md:grid-cols-[1fr_360px]">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="text-xl font-semibold">your profile</div>
+              <div className="text-sm text-zinc-600">ratings, activity, and credibility</div>
+            </div>
+            <div className="flex gap-2">
+              <button className="px-3 py-2 rounded-xl bg-zinc-100 text-sm">edit</button>
+              <button onClick={onGoBookings} className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-sm">
+                bookings
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <div className="rounded-3xl border border-zinc-200 p-4">
+              <div className="text-sm font-semibold">stats</div>
+              <div className="mt-3 grid gap-2 text-sm text-zinc-700">
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-600">parks completed</span>
+                  <span className="font-semibold">12</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-600">star rating</span>
+                  <span className="font-semibold">4.7</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-600">on-time rate</span>
+                  <span className="font-semibold">98%</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-zinc-200 p-4">
+              <div className="text-sm font-semibold">payment</div>
+              <div className="mt-3 rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-zinc-700 flex items-center gap-2">
+                    <CreditCard className="h-4 w-4" />
+                    <span>{hasPaymentMethod ? "card ending •••• 1234" : "no payment method"}</span>
+                  </div>
+                  <button
+                    onClick={() => setHasPaymentMethod(true)}
+                    className={cx(
+                      "text-xs font-medium px-3 py-2 rounded-xl",
+                      hasPaymentMethod ? "bg-zinc-100 text-zinc-700" : "bg-zinc-900 text-white"
+                    )}
+                  >
+                    {hasPaymentMethod ? "update" : "add"}
+                  </button>
+                </div>
+                <div className="mt-2 text-xs text-zinc-500">Required to confirm bookings</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-3xl border border-zinc-200 p-4">
+            <div className="text-sm font-semibold">Reviews</div>
+            <div className="mt-3 grid gap-3">
+              <div className="rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium">alex</div>
+                  <div className="text-xs text-zinc-600 inline-flex items-center gap-1">
+                    <Star className="h-4 w-4" /> 4/5
+                  </div>
+                </div>
+                <div className="mt-2 text-sm text-zinc-700">Smooth booking and easy entry. Would use again.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6 h-fit">
+          <div className="text-sm font-semibold">Wallet</div>
+          <div className="mt-3 rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
+            <div className="text-xs text-zinc-500">Available balance</div>
+            <div className="mt-1 text-2xl font-semibold">{money(30)}</div>
+            <div className="mt-2 text-xs text-zinc-600">Payouts and holds will appear here.</div>
+          </div>
+          <div className="mt-4 text-xs text-zinc-600">Future: host payouts, tax summaries, and withdrawal settings.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BookingCard({ b, onCancel, onBookAgain, onChat, onReview }) {
+  const canCancel = b.status === "confirmed" && hoursBetween(new Date(), b.startAt) >= 2;
+
+  return (
+    <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold truncate">{b.spot.title}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
+            <span className="inline-flex items-center gap-1">
+              <MapPin className="h-3.5 w-3.5" /> {b.spot.area}
+            </span>
+            <span className="text-zinc-300">•</span>
+            <span>{fmtDateTime(b.startAt)}</span>
+            <span className="text-zinc-300">•</span>
+            <span>{b.durationHours}h</span>
+            <span className="text-zinc-300">•</span>
+            <span className="font-medium">{money(b.total)}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge tone={b.status === "cancelled" ? "bad" : b.isPast ? "neutral" : "info"}>
+            {b.status === "cancelled" ? "cancelled" : b.isPast ? "previous" : `current • ${countdownLabel(b.startAt)}`}
+          </Badge>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          onClick={() => onBookAgain(b.spot)}
+          className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-xs font-medium hover:bg-zinc-800 inline-flex items-center gap-2"
+        >
+          <Repeat2 className="h-4 w-4" />
+          book again
+        </button>
+
+        <button
+          onClick={() => onChat(b)}
+          className="px-3 py-2 rounded-xl bg-zinc-100 text-zinc-800 text-xs font-medium hover:bg-zinc-200 inline-flex items-center gap-2"
+        >
+          <MessageSquare className="h-4 w-4" />
+          chat
+        </button>
+
+        <button
+          onClick={() => onReview(b)}
+          disabled={!b.isPast || b.status !== "confirmed"}
+          className={cx(
+            "px-3 py-2 rounded-xl text-xs font-medium inline-flex items-center gap-2",
+            b.isPast && b.status === "confirmed"
+              ? "bg-zinc-100 text-zinc-800 hover:bg-zinc-200"
+              : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+          )}
+        >
+          <Star className="h-4 w-4" />
+          leave review
+        </button>
+
+        <button
+          onClick={() => onCancel(b)}
+          disabled={!canCancel}
+          className={cx(
+            "px-3 py-2 rounded-xl text-xs font-medium inline-flex items-center gap-2",
+            canCancel ? "bg-rose-50 text-rose-700 hover:bg-rose-100" : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+          )}
+        >
+          <X className="h-4 w-4" />
+          cancel
+        </button>
+
+        <div className="ml-auto px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-xs text-zinc-700 inline-flex items-center gap-2">
+          <ReceiptText className="h-4 w-4" />
+          receipt
+        </div>
+      </div>
+
+      {!canCancel && !b.isPast && b.status === "confirmed" && (
+        <div className="mt-3 text-xs text-zinc-500">cancellation allowed until 2 hours before start time.</div>
+      )}
+    </div>
+  );
+}
+
+function BookingsPage({ bookings, onCancel, onBookAgain, onChat, onReview }) {
+  const now = new Date();
+  const enriched = useMemo(() => {
+    return bookings
+      .map((b) => ({
+        ...b,
+        startAt: b.startAt instanceof Date ? b.startAt : new Date(b.startAt),
+      }))
+      .map((b) => ({
+        ...b,
+        isPast: b.startAt.getTime() < now.getTime(),
+      }))
+      .sort((a, b) => b.startAt.getTime() - a.startAt.getTime());
+  }, [bookings]);
+
+  const current = enriched.filter((b) => !b.isPast);
+  const previous = enriched.filter((b) => b.isPast);
+
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-6">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <div className="text-xl font-semibold">bookings</div>
+          <div className="text-sm text-zinc-600">current and previous (newest first)</div>
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-8">
+        <div>
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold">current</div>
+            <Badge tone="info">cancel until 2h before</Badge>
+          </div>
+          <div className="mt-3 grid gap-3">
+            {current.length === 0 ? (
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">no current bookings.</div>
+            ) : (
+              current.map((b) => (
+                <BookingCard
+                  key={b.id}
+                  b={b}
+                  onCancel={onCancel}
+                  onBookAgain={onBookAgain}
+                  onChat={onChat}
+                  onReview={onReview}
+                />
+              ))
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-sm font-semibold">previous</div>
+          <div className="mt-3 grid gap-3">
+            {previous.length === 0 ? (
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">no previous bookings.</div>
+            ) : (
+              previous.map((b) => (
+                <BookingCard
+                  key={b.id}
+                  b={b}
+                  onCancel={onCancel}
+                  onBookAgain={onBookAgain}
+                  onChat={onChat}
+                  onReview={onReview}
+                />
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  const loadSpots = async () => {
+    const supabase = createClient();
+
+    const { data, error } = await supabase.from("spots").select("*");
+
+    if (error) {
+      console.error("Supabase error:", error);
+      return;
+    }
+
+    console.log("DATA FROM SUPABASE:", data);
+
+    setSpots(
+      (data || []).map((s) => ({
+        ...s,
+        priceHour: Number(s.price_hour),
+        priceDay: Number(s.price_day),
+        addressHint: s.address_hint ?? "",
+        difficulty: s.difficulty ?? "Easy",
+        description: s.description ?? "",
+        availability: s.availability ?? {
+          mon: ["09:00", "17:00"],
+          tue: ["09:00", "17:00"],
+          wed: ["09:00", "17:00"],
+          thu: ["09:00", "17:00"],
+          fri: ["09:00", "17:00"],
+          sat: ["10:00", "16:00"],
+          sun: null,
+        },
+        host: { name: "Host", rating: 4.8, reviews: 0 },
+        features: s.features ?? [],
+        photo: s.photo ?? null,
+        lat: Number(s.lat ?? 45.5),
+        lng: Number(s.lng ?? -73.6),
+      }))
+    );
+  };
+
+  useEffect(() => {
+    loadSpots();
+  }, []);
+
+  const [spots, setSpots] = useState<any[]>([]);
+  const [view, setView] = useState("home");
+  const [selected, setSelected] = useState(null);
+
+  const [hasPaymentMethod, setHasPaymentMethod] = useState(false);
+
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutPayload, setCheckoutPayload] = useState(null);
+
+  const [toast, setToast] = useState(null);
+
+  const [bookings, setBookings] = useState<any[]>([]);
+
+  const openSpot = (spot) => {
+    setSelected(spot);
+    setView("detail");
+  };
+
+  const startCheckout = (payload) => {
+    setCheckoutPayload(payload);
+    setCheckoutOpen(true);
+  };
+
+  const confirmPayment = () => {
+    const p = checkoutPayload;
+    if (!p) return;
+
+    const newBooking = {
+      id: `bk-${crypto.randomUUID().slice(0, 8)}`,
+      spot: p.spot,
+      startAt: p.startAt,
+      durationHours: p.durationHours,
+      subtotal: p.subtotal,
+      tax: p.tax,
+      total: p.total,
+      status: "confirmed",
+    };
+
+    setBookings((prev) => [newBooking, ...prev]);
+    setCheckoutOpen(false);
+    setView("bookings");
+    setToast(`booking confirmed: ${money(p.total)}`);
+    setTimeout(() => setToast(null), 2800);
+  };
+
+  const proposeDeal = (amount) => {
+    const spot = spots[0];
+    if (!spot) return;
+    const subtotal = amount;
+    const tax = subtotal * (TAX.gst + TAX.qst);
+    const total = subtotal + tax;
+    setCheckoutPayload({
+      spot,
+      day: "mon",
+      durationHours: 0,
+      subtotal,
+      tax,
+      total,
+      startAt: nextOccurrence("mon", spot.availability?.mon?.[0] || "09:00"),
+    });
+    setCheckoutOpen(true);
+  };
+
+  const cancelBooking = (b) => {
+    setBookings((prev) =>
+      prev.map((x) => (x.id === b.id ? { ...x, status: "cancelled" } : x))
+    );
+    setToast("booking cancelled");
+    setTimeout(() => setToast(null), 2200);
+  };
+
+  const goChat = () => {
+    setView("chat");
+  };
+
+  const leaveReview = () => {
+    setToast("review submitted (demo)");
+    setTimeout(() => setToast(null), 2200);
+  };
+
+  return (
+    <div className="min-h-screen bg-white text-zinc-900">
+      <TopNav
+        view={view === "detail" ? "search" : view}
+        setView={(v) => {
+          setSelected(null);
+          setView(v);
+        }}
+      />
+
+      {view === "home" && (
+        <>
+          <Hero onGetParking={() => setView("search")} onEarnMoney={() => setView("host")} />
+          <div className="mx-auto max-w-6xl px-4 pb-12">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-3xl border border-zinc-200 p-5">
+                <div className="flex items-center gap-2 font-semibold">
+                  <Search className="h-4 w-4" /> search
+                </div>
+                <div className="mt-2 text-sm text-zinc-600">filter by neighborhood, price, and availability.</div>
+              </div>
+              <div className="rounded-3xl border border-zinc-200 p-5">
+                <div className="flex items-center gap-2 font-semibold">
+                  <MessageSquare className="h-4 w-4" /> chat
+                </div>
+                <div className="mt-2 text-sm text-zinc-600">confirm details with hosts before arrival.</div>
+              </div>
+              <div className="rounded-3xl border border-zinc-200 p-5">
+                <div className="flex items-center gap-2 font-semibold">
+                  <Wallet className="h-4 w-4" /> pay
+                </div>
+                <div className="mt-2 text-sm text-zinc-600">secure payment flow; address stays masked until booking.</div>
+              </div>
+            </div>
+
+            <div className="mt-10 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
+              <div className="text-sm font-semibold">launch note (demo)</div>
+              <div className="mt-2 text-sm text-zinc-700 leading-relaxed">
+                this prototype demonstrates core flows: entry point (get parking / earn money), search + filters, listing
+                details, map browse, checkout, and bookings.
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {view === "search" && <SearchPage spots={spots} onOpenSpot={openSpot} />}
+
+      {view === "detail" && selected && (
+        <SpotDetail spot={selected} onBack={() => setView("search")} onCheckout={startCheckout} />
+      )}
+
+      {view === "host" && <HostPage onCreated={loadSpots} />}
+      {view === "chat" && <ChatPage onProposeDeal={proposeDeal} />}
+
+      {view === "bookings" && (
+        <BookingsPage
+          bookings={bookings}
+          onCancel={cancelBooking}
+          onBookAgain={(spot) => openSpot(spot)}
+          onChat={goChat}
+          onReview={leaveReview}
+        />
+      )}
+
+      {view === "profile" && (
+        <ProfilePage
+          hasPaymentMethod={hasPaymentMethod}
+          setHasPaymentMethod={setHasPaymentMethod}
+          onGoBookings={() => setView("bookings")}
+        />
+      )}
+
+      <CheckoutModal
+        open={checkoutOpen}
+        payload={checkoutPayload}
+        hasPaymentMethod={hasPaymentMethod}
+        onClose={() => setCheckoutOpen(false)}
+        onConfirm={confirmPayment}
+      />
+
+      {toast && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
+          <div className="rounded-2xl bg-zinc-900 text-white px-4 py-3 text-sm shadow-lg">{toast}</div>
+        </div>
+      )}
+
+      <footer className="border-t border-zinc-200">
+        <div className="mx-auto max-w-6xl px-4 py-8 text-xs text-zinc-600 flex flex-col md:flex-row gap-2 md:items-center md:justify-between">
+          <div>© 2026 GigPark • Prototype</div>
+          <div className="flex flex-wrap gap-2">
+            <span className="inline-flex items-center gap-1">
+              <ShieldCheck className="h-3.5 w-3.5" /> Safety first
+            </span>
+            <span className="text-zinc-300">•</span>
+            <span>No address reveal before booking</span>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
