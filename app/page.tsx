@@ -40,7 +40,7 @@ const days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 const DAY_TO_JS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 
-function nextOccurrence(dayKey, hhmm) {
+function nextOccurrence(dayKey: keyof typeof DAY_TO_JS, hhmm: string) {
   // returns Date for next occurrence of dayKey at hh:mm (local)
   const now = new Date();
   const targetDow = DAY_TO_JS[dayKey];
