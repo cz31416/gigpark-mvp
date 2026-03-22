@@ -27,7 +27,8 @@ import {
 // - No backend; uses mock data
 // - Flow: home, search (list/map), spot detail (availability + duration), checkout, bookings, chat, profile
 
-const cx = (...c) => c.filter(Boolean).join(" ");
+const cx = (...c: (string | false | null | undefined)[]) =>
+  c.filter(Boolean).join(" ");
 
 const money = (n: number) =>
   new Intl.NumberFormat("en-CA", {
