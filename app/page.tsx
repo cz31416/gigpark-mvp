@@ -1249,7 +1249,7 @@ function HostPage({
 
             <button
               onClick={user ? publishListing : onRequireLogin}
-              disabled={saving || (!user && false) || (user && !title.trim())}
+              disabled={saving || (user !== null && !title.trim())}
               className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:bg-zinc-300"
             >
               {saving ? "Publishing..." : user ? "Publish Listing" : "Log in to Publish"}
