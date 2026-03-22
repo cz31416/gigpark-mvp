@@ -69,7 +69,7 @@ function fmtDateTime(d: Date | string) {
   });
 }
 
-function hoursBetween(a, b) {
+function hoursBetween(a: Date, b: Date) {
   const ms = b.getTime() - a.getTime();
   return ms / (1000 * 60 * 60);
 }
