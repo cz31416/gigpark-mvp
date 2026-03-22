@@ -32,13 +32,60 @@ const cx = (...c: (string | false | null | undefined)[]) =>
 
 const money = (n: number) =>
   new Intl.NumberFormat("en-CA", {
-    style: "currency",
+    style: "Currency",
     currency: "CAD",
   }).format(n);
 
-const days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+const days: DayKey[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 const DAY_TO_JS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+
+type DayKey = keyof typeof DAY_TO_JS;
+
+type Availability = Record<DayKey, [string, string] | null>;
+
+type Spot = {
+  id: string;
+  title: string;
+  area: string;
+  priceHour: number;
+  priceDay: number;
+  addressHint: string;
+  photo: string | null;
+  difficulty: "Easy" | "Medium" | "Hard";
+  description: string;
+  availability: Availability;
+  host: {
+    name: string;
+    rating: number;
+    reviews: number;
+  };
+  features: string[];
+  lat: number;
+  lng: number;
+};
+
+type Booking = {
+  id: string;
+  spot: Spot;
+  startAt: Date | string;
+  durationHours: number;
+  subtotal: number;
+  tax: number;
+  total: number;
+  status: "Confirmed" | "Cancelled";
+  isPast?: boolean;
+};
+
+type CheckoutPayload = {
+  spot: Spot;
+  day: DayKey;
+  durationHours: number;
+  subtotal: number;
+  tax: number;
+  total: number;
+  startAt: Date;
+};
 
 function nextOccurrence(dayKey: keyof typeof DAY_TO_JS, hhmm: string) {
   // returns Date for next occurrence of dayKey at hh:mm (local)
@@ -74,7 +121,7 @@ function hoursBetween(a: Date, b: Date) {
   return ms / (1000 * 60 * 60);
 }
 
-function countdownLabel(startAt) {
+function countdownLabel(startAt: Date) {
   const now = new Date();
   const h = hoursBetween(now, startAt);
   if (h <= 0) return "started";
@@ -91,13 +138,19 @@ const MOCK_MESSAGES = [
   { from: "alex", side: "them", text: "yes—left side. i'll send exact pin after booking." },
 ];
 
-function Badge({ children, tone = "neutral" }) {
+function Badge({
+  children,
+  tone = "Neutral",
+}: {
+  children: React.ReactNode;
+  tone?: "Neutral" | "Good" | "Warn" | "Bad" | "Info";
+}) {
   const map = {
-    neutral: "bg-zinc-100 text-zinc-700",
-    good: "bg-emerald-50 text-emerald-700",
-    warn: "bg-amber-50 text-amber-700",
-    bad: "bg-rose-50 text-rose-700",
-    info: "bg-sky-50 text-sky-700",
+    Neutral: "bg-zinc-100 text-zinc-700",
+    Good: "bg-emerald-50 text-emerald-700",
+    Warn: "bg-amber-50 text-amber-700",
+    Bad: "bg-rose-50 text-rose-700",
+    Info: "bg-sky-50 text-sky-700",
   };
   return (
     <span
@@ -111,13 +164,21 @@ function Badge({ children, tone = "neutral" }) {
   );
 }
 
-function DifficultyPill({ level }) {
+function DifficultyPill({ level }: { level: Spot["difficulty"] }) {
   const tone = level === "Easy" ? "Good" : level === "Medium" ? "Warn" : "Bad";
   return <Badge tone={tone}>{level}</Badge>;
 }
 
-function TopNav({ view, setView }) {
-  const tabs = [
+type View = "home" | "search" | "detail" | "host" | "bookings" | "chat" | "profile";
+
+function TopNav({
+  view,
+  setView,
+}: {
+  view: View;
+  setView: React.Dispatch<React.SetStateAction<View>>;
+}) {
+  const tabs: { id: View; label: string }[] = [
     { id: "home", label: "Home" },
     { id: "search", label: "Find Parking" },
     { id: "host", label: "List a Spot" },
@@ -162,7 +223,7 @@ function TopNav({ view, setView }) {
               "h-9 w-9 rounded-xl grid place-items-center",
               view === "search" ? "bg-zinc-900 text-white" : "bg-zinc-100"
             )}
-            aria-label="find"
+            aria-label="Find"
           >
             <Search className="h-4 w-4" />
           </button>
@@ -172,7 +233,7 @@ function TopNav({ view, setView }) {
               "h-9 w-9 rounded-xl grid place-items-center",
               view === "host" ? "bg-zinc-900 text-white" : "bg-zinc-100"
             )}
-            aria-label="host"
+            aria-label="Host"
           >
             <Plus className="h-4 w-4" />
           </button>
@@ -182,7 +243,7 @@ function TopNav({ view, setView }) {
               "h-9 w-9 rounded-xl grid place-items-center",
               view === "bookings" ? "bg-zinc-900 text-white" : "bg-zinc-100"
             )}
-            aria-label="bookings"
+            aria-label="Bookings"
           >
             <CalendarDays className="h-4 w-4" />
           </button>
@@ -192,7 +253,7 @@ function TopNav({ view, setView }) {
               "h-9 w-9 rounded-xl grid place-items-center",
               view === "chat" ? "bg-zinc-900 text-white" : "bg-zinc-100"
             )}
-            aria-label="chat"
+            aria-label="Chat"
           >
             <MessageSquare className="h-4 w-4" />
           </button>
@@ -202,7 +263,13 @@ function TopNav({ view, setView }) {
   );
 }
 
-function Hero({ onGetParking, onEarnMoney }) {
+function Hero({
+  onGetParking,
+  onEarnMoney,
+}: {
+  onGetParking: () => void;
+  onEarnMoney: () => void;
+}) {
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
       <div className="grid gap-8 md:grid-cols-2 items-center">
@@ -265,7 +332,7 @@ function Hero({ onGetParking, onEarnMoney }) {
                   <span className="truncate">{money(4)}/hr</span>
                 </div>
               </div>
-              <DifficultyPill level="easy" />
+              <DifficultyPill level="Easy" />
             </div>
             <div className="mt-3 flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs text-zinc-600">
@@ -283,7 +350,25 @@ function Hero({ onGetParking, onEarnMoney }) {
   );
 }
 
-function FiltersBar({ q, setQ, area, setArea, priceMax, setPriceMax, viewMode, setViewMode }) {
+function FiltersBar({
+  q,
+  setQ,
+  area,
+  setArea,
+  priceMax,
+  setPriceMax,
+  viewMode,
+  setViewMode,
+}: {
+  q: string;
+  setQ: React.Dispatch<React.SetStateAction<string>>;
+  area: string;
+  setArea: React.Dispatch<React.SetStateAction<string>>;
+  priceMax: number;
+  setPriceMax: React.Dispatch<React.SetStateAction<number>>;
+  viewMode: "list" | "map";
+  setViewMode: React.Dispatch<React.SetStateAction<"list" | "map">>;
+}) {
   return (
     <div className="rounded-3xl border border-zinc-200 bg-white p-4">
       <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
@@ -292,7 +377,7 @@ function FiltersBar({ q, setQ, area, setArea, priceMax, setPriceMax, viewMode, s
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="search: metro, campus, neighborhood"
+            placeholder="Search: metro, campus, neighborhood"
             className="w-full bg-transparent outline-none text-sm"
           />
         </div>
@@ -328,15 +413,21 @@ function FiltersBar({ q, setQ, area, setArea, priceMax, setPriceMax, viewMode, s
         </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
-        <Badge tone="info">filters: date • price • location</Badge>
+        <Badge tone="Info">filters: date • price • location</Badge>
         <Badge>no exact address until booking</Badge>
-        <Badge tone="good">owner-authorized spots only</Badge>
+        <Badge tone="Good">owner-authorized spots only</Badge>
       </div>
     </div>
   );
 }
 
-function ListingCard({ spot, onOpen }) {
+function ListingCard({
+  spot,
+  onOpen,
+}: {
+  spot: Spot;
+  onOpen: (spot: Spot) => void;
+}) {
   return (
     <button
       onClick={() => onOpen(spot)}
@@ -379,11 +470,22 @@ function ListingCard({ spot, onOpen }) {
   );
 }
 
-function BubbleMap({ spots, onOpen }) {
+function BubbleMap({
+  spots,
+  onOpen,
+}: {
+  spots: Spot[];
+  onOpen: (spot: Spot) => void;
+}) {
   // stylized “map” with bubbles (no external map API)
   const bounds = useMemo(() => {
+    if (spots.length === 0) {
+      return { minLat: 0, maxLat: 1, minLng: 0, maxLng: 1 };
+    }
+
     const lats = spots.map((s) => s.lat);
     const lngs = spots.map((s) => s.lng);
+
     return {
       minLat: Math.min(...lats),
       maxLat: Math.max(...lats),
@@ -392,7 +494,7 @@ function BubbleMap({ spots, onOpen }) {
     };
   }, [spots]);
 
-  const toXY = (lat, lng) => {
+  const toXY = (lat: number, lng: number) => {
     const x = ((lng - bounds.minLng) / (bounds.maxLng - bounds.minLng || 1)) * 100;
     const y = (1 - (lat - bounds.minLat) / (bounds.maxLat - bounds.minLat || 1)) * 100;
     return { x, y };
@@ -420,7 +522,11 @@ function BubbleMap({ spots, onOpen }) {
           const { x, y } = toXY(s.lat, s.lng);
           const size = 26 + (s.priceHour - 2) * 6;
           const ring =
-            s.difficulty === "easy" ? "ring-emerald-300" : s.difficulty === "medium" ? "ring-amber-300" : "ring-rose-300";
+            s.difficulty === "Easy"
+              ? "ring-emerald-300"
+              : s.difficulty === "Medium"
+              ? "ring-amber-300"
+              : "ring-rose-300";
           return (
             <button
               key={s.id}
@@ -451,8 +557,16 @@ function BubbleMap({ spots, onOpen }) {
   );
 }
 
-function SpotDetail({ spot, onBack, onCheckout }) {
-  const [day, setDay] = useState("mon");
+function SpotDetail({
+  spot,
+  onBack,
+  onCheckout,
+}: {
+  spot: Spot;
+  onBack: () => void;
+  onCheckout: (payload: CheckoutPayload) => void;
+}) {
+  const [day, setDay] = useState<DayKey>("mon");
   const [duration, setDuration] = useState("2h");
 
   const av = spot.availability?.[day];
@@ -465,7 +579,7 @@ function SpotDetail({ spot, onBack, onCheckout }) {
     <div className="mx-auto max-w-6xl px-4 py-6">
       <button onClick={onBack} className="inline-flex items-center gap-2 text-sm text-zinc-700 hover:text-zinc-900">
         <ArrowLeft className="h-4 w-4" />
-        back to search
+        Back to search
       </button>
 
       <div className="mt-4 grid gap-6 md:grid-cols-[1.2fr_0.8fr]">
@@ -506,7 +620,7 @@ function SpotDetail({ spot, onBack, onCheckout }) {
 
             <div className="mt-5 rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
               <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold">host</div>
+                <div className="text-sm font-semibold">Host</div>
                 <div className="flex items-center gap-2 text-sm text-zinc-700">
                   <Star className="h-4 w-4" />
                   <span>
@@ -613,8 +727,20 @@ function SpotDetail({ spot, onBack, onCheckout }) {
   );
 }
 
-function CheckoutModal({ open, onClose, payload, hasPaymentMethod, onConfirm }) {
-  if (!open) return null;
+function CheckoutModal({
+  open,
+  onClose,
+  payload,
+  hasPaymentMethod,
+  onConfirm,
+}: {
+  open: boolean;
+  onClose: () => void;
+  payload: CheckoutPayload | null;
+  hasPaymentMethod: boolean;
+  onConfirm: () => void;
+}) {
+  if (!open || !payload) return null;
   const { spot, day, durationHours, subtotal, tax, total, startAt } = payload;
 
   return (
@@ -697,7 +823,13 @@ function CheckoutModal({ open, onClose, payload, hasPaymentMethod, onConfirm }) 
   );
 }
 
-function SearchPage({ spots, onOpenSpot }) {
+function SearchPage({
+  spots,
+  onOpenSpot,
+}: {
+  spots: Spot[];
+  onOpenSpot: (spot: Spot) => void;
+}) {
   const [q, setQ] = useState("");
   const [area, setArea] = useState("");
   const [priceMax, setPriceMax] = useState(100);
@@ -707,7 +839,7 @@ function SearchPage({ spots, onOpenSpot }) {
     setPriceMax(highest);
   }, [spots]);
 
-  const [viewMode, setViewMode] = useState("list");
+  const [viewMode, setViewMode] = useState<"list" | "map">("list");
 
   const filtered = useMemo(() => {
     return spots.filter((s) => {
@@ -726,7 +858,7 @@ function SearchPage({ spots, onOpenSpot }) {
           <div className="text-sm text-zinc-600">search, filter, and book in minutes</div>
         </div>
         <div className="hidden md:flex items-center gap-2 text-xs text-zinc-600">
-          <Badge tone="good">Get Parking</Badge>
+          <Badge tone="Good">Get Parking</Badge>
           <Badge>earn money</Badge>
         </div>
       </div>
@@ -763,7 +895,7 @@ function SearchPage({ spots, onOpenSpot }) {
   );
 }
 
-function HostPage({ onCreated }) {
+function HostPage({ onCreated }: { onCreated: () => Promise<void> | void }) {
   const [errorMsg, setErrorMsg] = useState("");
   const [title, setTitle] = useState("");
   const [area, setArea] = useState("Côte-des-Neiges");
@@ -772,7 +904,7 @@ function HostPage({ onCreated }) {
   const [addressHint, setAddressHint] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState("");
-  const [difficulty, setDifficulty] = useState("Easy");
+  const [difficulty, setDifficulty] = useState<Spot["difficulty"]>("Easy");
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -1038,7 +1170,7 @@ function HostPage({ onCreated }) {
               <span className="text-xs text-zinc-500">Difficulty</span>
               <select
                 value={difficulty}
-                onChange={(e) => setDifficulty(e.target.value)}
+                onChange={(e) => setDifficulty(e.target.value as Spot["difficulty"])}
                 className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
               >
                 <option value="Easy">Easy</option>
@@ -1118,7 +1250,7 @@ function HostPage({ onCreated }) {
   );
 }
 
-function ChatPage({ onProposeDeal }) {
+function ChatPage({ onProposeDeal }: { onProposeDeal: (amount: number) => void }) {
   const [draft, setDraft] = useState("");
   const [msgs, setMsgs] = useState(MOCK_MESSAGES);
 
@@ -1194,20 +1326,28 @@ function ChatPage({ onProposeDeal }) {
   );
 }
 
-function ProfilePage({ hasPaymentMethod, setHasPaymentMethod, onGoBookings }) {
+function ProfilePage({
+  hasPaymentMethod,
+  setHasPaymentMethod,
+  onGoBookings,
+}: {
+  hasPaymentMethod: boolean;
+  setHasPaymentMethod: React.Dispatch<React.SetStateAction<boolean>>;
+  onGoBookings: () => void;
+}) {
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div className="grid gap-6 md:grid-cols-[1fr_360px]">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-xl font-semibold">your profile</div>
+              <div className="text-xl font-semibold">Your profile</div>
               <div className="text-sm text-zinc-600">ratings, activity, and credibility</div>
             </div>
             <div className="flex gap-2">
               <button className="px-3 py-2 rounded-xl bg-zinc-100 text-sm">edit</button>
               <button onClick={onGoBookings} className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-sm">
-                bookings
+                Bookings
               </button>
             </div>
           </div>
@@ -1217,15 +1357,15 @@ function ProfilePage({ hasPaymentMethod, setHasPaymentMethod, onGoBookings }) {
               <div className="text-sm font-semibold">stats</div>
               <div className="mt-3 grid gap-2 text-sm text-zinc-700">
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-600">parks completed</span>
+                  <span className="text-zinc-600">Parks completed</span>
                   <span className="font-semibold">12</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-600">star rating</span>
+                  <span className="text-zinc-600">Star rating</span>
                   <span className="font-semibold">4.7</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-600">on-time rate</span>
+                  <span className="text-zinc-600">On-time rate</span>
                   <span className="font-semibold">98%</span>
                 </div>
               </div>
@@ -1259,7 +1399,7 @@ function ProfilePage({ hasPaymentMethod, setHasPaymentMethod, onGoBookings }) {
             <div className="mt-3 grid gap-3">
               <div className="rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
                 <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium">alex</div>
+                  <div className="text-sm font-medium">Alex</div>
                   <div className="text-xs text-zinc-600 inline-flex items-center gap-1">
                     <Star className="h-4 w-4" /> 4/5
                   </div>
@@ -1284,8 +1424,21 @@ function ProfilePage({ hasPaymentMethod, setHasPaymentMethod, onGoBookings }) {
   );
 }
 
-function BookingCard({ b, onCancel, onBookAgain, onChat, onReview }) {
-  const canCancel = b.status === "confirmed" && hoursBetween(new Date(), b.startAt) >= 2;
+function BookingCard({
+  b,
+  onCancel,
+  onBookAgain,
+  onChat,
+  onReview,
+}: {
+  b: Booking;
+  onCancel: (b: Booking) => void;
+  onBookAgain: (spot: Spot) => void;
+  onChat: (b: Booking) => void;
+  onReview: (b: Booking) => void;
+}) {
+  const startAt = b.startAt instanceof Date ? b.startAt : new Date(b.startAt);
+  const canCancel = b.status === "Confirmed" && hoursBetween(new Date(), startAt) >= 2;
 
   return (
     <div className="rounded-3xl border border-zinc-200 bg-white p-5">
@@ -1297,7 +1450,7 @@ function BookingCard({ b, onCancel, onBookAgain, onChat, onReview }) {
               <MapPin className="h-3.5 w-3.5" /> {b.spot.area}
             </span>
             <span className="text-zinc-300">•</span>
-            <span>{fmtDateTime(b.startAt)}</span>
+            <span>{fmtDateTime(startAt)}</span>
             <span className="text-zinc-300">•</span>
             <span>{b.durationHours}h</span>
             <span className="text-zinc-300">•</span>
@@ -1305,8 +1458,8 @@ function BookingCard({ b, onCancel, onBookAgain, onChat, onReview }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Badge tone={b.status === "cancelled" ? "bad" : b.isPast ? "neutral" : "info"}>
-            {b.status === "cancelled" ? "cancelled" : b.isPast ? "previous" : `current • ${countdownLabel(b.startAt)}`}
+          <Badge tone={b.status === "Cancelled" ? "Bad" : b.isPast ? "Neutral" : "Info"}>
+            {b.status === "Cancelled" ? "Cancelled" : b.isPast ? "Previous" : `Current • ${countdownLabel(startAt)}`}
           </Badge>
         </div>
       </div>
@@ -1314,12 +1467,11 @@ function BookingCard({ b, onCancel, onBookAgain, onChat, onReview }) {
       <div className="mt-4 flex flex-wrap gap-2">
         <button
           onClick={() => onBookAgain(b.spot)}
-          className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-xs font-medium hover:bg-zinc-800 inline-flex items-center gap-2"
+          className="px-3 py-2 rounded-xl bg-zinc-100 text-zinc-800 text-xs font-medium hover:bg-zinc-200 inline-flex items-center gap-2"
         >
           <Repeat2 className="h-4 w-4" />
           book again
         </button>
-
         <button
           onClick={() => onChat(b)}
           className="px-3 py-2 rounded-xl bg-zinc-100 text-zinc-800 text-xs font-medium hover:bg-zinc-200 inline-flex items-center gap-2"
@@ -1330,10 +1482,10 @@ function BookingCard({ b, onCancel, onBookAgain, onChat, onReview }) {
 
         <button
           onClick={() => onReview(b)}
-          disabled={!b.isPast || b.status !== "confirmed"}
+          disabled={!b.isPast || b.status !== "Confirmed"}
           className={cx(
             "px-3 py-2 rounded-xl text-xs font-medium inline-flex items-center gap-2",
-            b.isPast && b.status === "confirmed"
+            b.isPast && b.status === "Confirmed"
               ? "bg-zinc-100 text-zinc-800 hover:bg-zinc-200"
               : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
           )}
@@ -1360,14 +1512,26 @@ function BookingCard({ b, onCancel, onBookAgain, onChat, onReview }) {
         </div>
       </div>
 
-      {!canCancel && !b.isPast && b.status === "confirmed" && (
+      {!canCancel && !b.isPast && b.status === "Confirmed" && (
         <div className="mt-3 text-xs text-zinc-500">cancellation allowed until 2 hours before start time.</div>
       )}
     </div>
   );
 }
 
-function BookingsPage({ bookings, onCancel, onBookAgain, onChat, onReview }) {
+function BookingsPage({
+  bookings,
+  onCancel,
+  onBookAgain,
+  onChat,
+  onReview,
+}: {
+  bookings: Booking[];
+  onCancel: (b: Booking) => void;
+  onBookAgain: (spot: Spot) => void;
+  onChat: (b: Booking) => void;
+  onReview: (b: Booking) => void;
+}) {
   const now = new Date();
   const enriched = useMemo(() => {
     return bookings
@@ -1398,7 +1562,7 @@ function BookingsPage({ bookings, onCancel, onBookAgain, onChat, onReview }) {
         <div>
           <div className="flex items-center justify-between">
             <div className="text-sm font-semibold">current</div>
-            <Badge tone="info">cancel until 2h before</Badge>
+            <Badge tone="Info">cancel until 2h before</Badge>
           </div>
           <div className="mt-3 grid gap-3">
             {current.length === 0 ? (
@@ -1485,25 +1649,21 @@ export default function App() {
     loadSpots();
   }, []);
 
-  const [spots, setSpots] = useState<any[]>([]);
-  const [view, setView] = useState("home");
-  const [selected, setSelected] = useState(null);
-
+  const [spots, setSpots] = useState<Spot[]>([]);
+  const [view, setView] = useState<View>("home");
+  const [selected, setSelected] = useState<Spot | null>(null);
   const [hasPaymentMethod, setHasPaymentMethod] = useState(false);
-
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [checkoutPayload, setCheckoutPayload] = useState(null);
+  const [checkoutPayload, setCheckoutPayload] = useState<CheckoutPayload | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [bookings, setBookings] = useState<Booking[]>([]);
 
-  const [toast, setToast] = useState(null);
-
-  const [bookings, setBookings] = useState<any[]>([]);
-
-  const openSpot = (spot) => {
+  const openSpot = (spot: Spot) => {
     setSelected(spot);
     setView("detail");
   };
 
-  const startCheckout = (payload) => {
+  const startCheckout = (payload: CheckoutPayload) => {
     setCheckoutPayload(payload);
     setCheckoutOpen(true);
   };
@@ -1513,24 +1673,24 @@ export default function App() {
     if (!p) return;
 
     const newBooking = {
-      id: `bk-${crypto.randomUUID().slice(0, 8)}`,
+      id: `bk-${Math.random().toString(36).slice(2, 10)}`,
       spot: p.spot,
       startAt: p.startAt,
       durationHours: p.durationHours,
       subtotal: p.subtotal,
       tax: p.tax,
       total: p.total,
-      status: "confirmed",
+      status: "Confirmed",
     };
 
     setBookings((prev) => [newBooking, ...prev]);
     setCheckoutOpen(false);
     setView("bookings");
-    setToast(`booking confirmed: ${money(p.total)}`);
+    setToast(`Booking confirmed: ${money(p.total)}`);
     setTimeout(() => setToast(null), 2800);
   };
 
-  const proposeDeal = (amount) => {
+  const proposeDeal = (amount: number) => {
     const spot = spots[0];
     if (!spot) return;
     const subtotal = amount;
@@ -1539,7 +1699,7 @@ export default function App() {
     setCheckoutPayload({
       spot,
       day: "mon",
-      durationHours: 0,
+      durationHours: 1,
       subtotal,
       tax,
       total,
@@ -1548,11 +1708,11 @@ export default function App() {
     setCheckoutOpen(true);
   };
 
-  const cancelBooking = (b) => {
+  const cancelBooking = (b: Booking) => {
     setBookings((prev) =>
-      prev.map((x) => (x.id === b.id ? { ...x, status: "cancelled" } : x))
+      prev.map((x) => (x.id === b.id ? { ...x, status: "Cancelled" } : x))
     );
-    setToast("booking cancelled");
+    setToast("Booking cancelled");
     setTimeout(() => setToast(null), 2200);
   };
 
@@ -1561,7 +1721,7 @@ export default function App() {
   };
 
   const leaveReview = () => {
-    setToast("review submitted (demo)");
+    setToast("Review submitted (demo)");
     setTimeout(() => setToast(null), 2200);
   };
 
@@ -1582,13 +1742,13 @@ export default function App() {
             <div className="grid gap-4 md:grid-cols-3">
               <div className="rounded-3xl border border-zinc-200 p-5">
                 <div className="flex items-center gap-2 font-semibold">
-                  <Search className="h-4 w-4" /> search
+                  <Search className="h-4 w-4" /> Search
                 </div>
                 <div className="mt-2 text-sm text-zinc-600">filter by neighborhood, price, and availability.</div>
               </div>
               <div className="rounded-3xl border border-zinc-200 p-5">
                 <div className="flex items-center gap-2 font-semibold">
-                  <MessageSquare className="h-4 w-4" /> chat
+                  <MessageSquare className="h-4 w-4" /> Chat
                 </div>
                 <div className="mt-2 text-sm text-zinc-600">confirm details with hosts before arrival.</div>
               </div>
@@ -1617,7 +1777,7 @@ export default function App() {
         <SpotDetail spot={selected} onBack={() => setView("search")} onCheckout={startCheckout} />
       )}
 
-      {view === "host" && <HostPage onCreated={loadSpots} />}
+     {view === "host" && <HostPage onCreated={loadSpots} />}
       {view === "chat" && <ChatPage onProposeDeal={proposeDeal} />}
 
       {view === "bookings" && (
