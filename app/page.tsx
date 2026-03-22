@@ -32,7 +32,7 @@ const cx = (...c: (string | false | null | undefined)[]) =>
 
 const money = (n: number) =>
   new Intl.NumberFormat("en-CA", {
-    style: "Currency",
+    style: "currency",
     currency: "CAD",
   }).format(n);
 
