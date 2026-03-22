@@ -1672,7 +1672,7 @@ export default function App() {
     const p = checkoutPayload;
     if (!p) return;
 
-    const newBooking = {
+    const newBooking: Booking = {
       id: `bk-${Math.random().toString(36).slice(2, 10)}`,
       spot: p.spot,
       startAt: p.startAt,
@@ -1710,7 +1710,7 @@ export default function App() {
 
   const cancelBooking = (b: Booking) => {
     setBookings((prev) =>
-      prev.map((x) => (x.id === b.id ? { ...x, status: "Cancelled" } : x))
+      prev.map((x): Booking => (x.id === b.id ? { ...x, status: "Cancelled" } : x))
     );
     setToast("Booking cancelled");
     setTimeout(() => setToast(null), 2200);
