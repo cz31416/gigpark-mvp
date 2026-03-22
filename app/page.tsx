@@ -179,11 +179,15 @@ function TopNav({
   setView,
   user,
   onLogout,
+  onRequireLoginFor,
+  onOpenLogin,
 }: {
   view: View;
   setView: React.Dispatch<React.SetStateAction<View>>;
   user: User | null;
   onLogout: () => Promise<void> | void;
+  onRequireLoginFor: (view: View) => void;
+  onOpenLogin: () => void;
 }) {
   const tabs: { id: View; label: string }[] = [
     { id: "home", label: "Home" },
@@ -213,7 +217,19 @@ function TopNav({
           {tabs.map((t) => (
             <button
               key={t.id}
-              onClick={() => setView(t.id)}
+              onClick={() => {
+                if (t.id === "profile" && !user) {
+                  onRequireLoginFor("profile");
+                  return;
+                }
+
+                if ((t.id === "bookings" || t.id === "chat") && !user) {
+                  onRequireLoginFor(t.id);
+                  return;
+                }
+
+                setView(t.id);
+              }}
               className={cx(
                 "rounded-xl px-3 py-2 text-sm",
                 view === t.id ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-100"
@@ -229,15 +245,15 @@ function TopNav({
               className="ml-2 inline-flex items-center gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
             >
               <LogOut className="h-4 w-4" />
-              log out
+              Log Out
             </button>
           ) : (
             <button
-              onClick={() => setView("login")}
+              onClick={onOpenLogin}
               className="ml-2 inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-3 py-2 text-sm text-white hover:bg-zinc-800"
             >
               <LogIn className="h-4 w-4" />
-              log in
+              Log In
             </button>
           )}
         </div>
@@ -255,7 +271,7 @@ function TopNav({
           </button>
 
           <button
-            onClick={() => setView(user ? "host" : "login")}
+            onClick={() => (user ? setView("host") : onRequireLoginFor("host"))}
             className={cx(
               "grid h-9 w-9 place-items-center rounded-xl",
               view === "host" ? "bg-zinc-900 text-white" : "bg-zinc-100"
@@ -266,7 +282,7 @@ function TopNav({
           </button>
 
           <button
-            onClick={() => setView("bookings")}
+            onClick={() => (user ? setView("bookings") : onRequireLoginFor("bookings"))}
             className={cx(
               "grid h-9 w-9 place-items-center rounded-xl",
               view === "bookings" ? "bg-zinc-900 text-white" : "bg-zinc-100"
@@ -286,12 +302,12 @@ function TopNav({
             </button>
           ) : (
             <button
-              onClick={() => setView("login")}
+              onClick={onOpenLogin}
               className={cx(
                 "grid h-9 w-9 place-items-center rounded-xl",
                 view === "login" ? "bg-zinc-900 text-white" : "bg-zinc-100"
               )}
-              aria-label="Log in"
+              aria-label="Log In"
             >
               <LogIn className="h-4 w-4" />
             </button>
@@ -598,21 +614,47 @@ function BubbleMap({
 
 function SpotDetail({
   spot,
+  user,
   onBack,
   onCheckout,
+  onRequireLogin,
 }: {
   spot: Spot;
+  user: User | null;
   onBack: () => void;
   onCheckout: (payload: CheckoutPayload) => void;
+  onRequireLogin: () => void;
 }) {
   const [day, setDay] = useState<DayKey>("mon");
   const [duration, setDuration] = useState("2h");
 
   const av = spot.availability?.[day];
-  const durationHours = duration === "1h" ? 1 : duration === "2h" ? 2 : duration === "4h" ? 4 : duration === "8h" ? 8 : 24;
+  const durationHours =
+    duration === "1h" ? 1 :
+    duration === "2h" ? 2 :
+    duration === "4h" ? 4 :
+    duration === "8h" ? 8 : 24;
+
   const subtotal = spot.priceHour * durationHours;
   const tax = subtotal * (TAX.gst + TAX.qst);
   const total = subtotal + tax;
+
+  const handleBookNow = () => {
+    if (!user) {
+      onRequireLogin();
+      return;
+    }
+
+    onCheckout({
+      spot,
+      day,
+      durationHours,
+      subtotal,
+      tax,
+      total,
+      startAt: nextOccurrence(day, av?.[0] || "09:00"),
+    });
+  };
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
@@ -673,13 +715,13 @@ function SpotDetail({
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-5 h-fit">
-          <div className="text-sm text-zinc-600">price</div>
+          <div className="text-sm text-zinc-600">Price</div>
           <div className="mt-1 text-2xl font-semibold">{money(spot.priceHour)}/hr</div>
           <div className="mt-1 text-sm text-zinc-600">{money(spot.priceDay)}/day</div>
 
           <div className="mt-4 grid gap-3">
             <div>
-              <div className="text-xs text-zinc-500 mb-1">choose day</div>
+              <div className="text-xs text-zinc-500 mb-1">Choose day</div>
               <div className="flex flex-wrap gap-2">
                 {days.map((d) => (
                   <button
@@ -697,7 +739,7 @@ function SpotDetail({
             </div>
 
             <div>
-              <div className="text-xs text-zinc-500 mb-1">availability</div>
+              <div className="text-xs text-zinc-500 mb-1">Availability</div>
               <div className="flex items-center gap-2 text-sm text-zinc-700">
                 <Clock className="h-4 w-4" />
                 <span>{av ? `${av[0]}–${av[1]}` : "not available"}</span>
@@ -705,18 +747,18 @@ function SpotDetail({
             </div>
 
             <div>
-              <div className="text-xs text-zinc-500 mb-1">duration</div>
+              <div className="text-xs text-zinc-500 mb-1">Duration</div>
               <div className="grid grid-cols-5 gap-2">
                 {[
-                  { k: "1h", v: 1 },
-                  { k: "2h", v: 2 },
-                  { k: "4h", v: 4 },
-                  { k: "8h", v: 8 },
-                  { k: "24h", v: 24 },
+                  { k: "1h" },
+                  { k: "2h" },
+                  { k: "4h" },
+                  { k: "8h" },
+                  { k: "24h" },
                 ].map((x) => (
                   <button
                     key={x.k}
-                    onClick={() => setDuration(`${x.k}`)}
+                    onClick={() => setDuration(x.k)}
                     className={cx(
                       "px-3 py-2 rounded-xl text-sm",
                       duration === x.k ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700"
@@ -730,35 +772,35 @@ function SpotDetail({
 
             <div className="rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-zinc-600">subtotal</span>
+                <span className="text-zinc-600">Subtotal</span>
                 <span className="font-semibold">{money(subtotal)}</span>
               </div>
               <div className="mt-1 flex items-center justify-between text-sm">
-                <span className="text-zinc-600">gst + qst</span>
+                <span className="text-zinc-600">GST + QST</span>
                 <span className="font-semibold">{money(tax)}</span>
               </div>
               <div className="mt-2 pt-2 border-t border-zinc-200 flex items-center justify-between text-sm">
-                <span className="text-zinc-600">total</span>
+                <span className="text-zinc-600">Total</span>
                 <span className="font-semibold">{money(total)}</span>
               </div>
-              <div className="mt-2 text-xs text-zinc-500">final details confirmed in chat. payment required to confirm.</div>
+              <div className="mt-2 text-xs text-zinc-500">Final details confirmed in chat. payment required to confirm.</div>
             </div>
 
             <button
               disabled={!av}
-              onClick={() => onCheckout({ spot, day, durationHours, subtotal, tax, total, startAt: nextOccurrence(day, av?.[0] || "09:00") })}
+              onClick={handleBookNow}
               className={cx(
                 "w-full px-4 py-3 rounded-2xl text-sm font-medium",
                 av ? "bg-zinc-900 text-white hover:bg-zinc-800" : "bg-zinc-200 text-zinc-500 cursor-not-allowed"
               )}
             >
-              book & pay
+              {user ? "Book & Pay" : "log in to book"}
             </button>
           </div>
 
           <div className="mt-4 text-xs text-zinc-600 flex items-center gap-2">
             <ShieldCheck className="h-4 w-4" />
-            address stays masked until booking
+            Address stays masked until booking
           </div>
         </div>
       </div>
@@ -1243,7 +1285,7 @@ function HostPage({
 
             {!user && (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                you need to log in before publishing a listing.
+                You need to log in before publishing a listing.
               </div>
             )}
 
@@ -1386,14 +1428,38 @@ function ChatPage({ onProposeDeal }: { onProposeDeal: (amount: number) => void }
 }
 
 function ProfilePage({
+  user,
   hasPaymentMethod,
   setHasPaymentMethod,
   onGoBookings,
+  onRequireLogin,
 }: {
+  user: User | null;
   hasPaymentMethod: boolean;
   setHasPaymentMethod: React.Dispatch<React.SetStateAction<boolean>>;
   onGoBookings: () => void;
+  onRequireLogin: () => void;
 }) {
+  if (!user) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-10">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-8 text-center">
+          <div className="text-2xl font-semibold">profile</div>
+          <div className="mt-2 text-sm text-zinc-600">
+            Log in to view your payment method, bookings, ratings, and wallet.
+          </div>
+
+          <button
+            onClick={onRequireLogin}
+            className="mt-6 rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-800"
+          >
+            Log in
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div className="grid gap-6 md:grid-cols-[1fr_360px]">
@@ -1401,7 +1467,7 @@ function ProfilePage({
           <div className="flex items-start justify-between">
             <div>
               <div className="text-xl font-semibold">Your profile</div>
-              <div className="text-sm text-zinc-600">ratings, activity, and credibility</div>
+              <div className="text-sm text-zinc-600">{user.email}</div>
             </div>
             <div className="flex gap-2">
               <button className="px-3 py-2 rounded-xl bg-zinc-100 text-sm">edit</button>
@@ -1572,7 +1638,7 @@ function BookingCard({
       </div>
 
       {!canCancel && !b.isPast && b.status === "Confirmed" && (
-        <div className="mt-3 text-xs text-zinc-500">cancellation allowed until 2 hours before start time.</div>
+        <div className="mt-3 text-xs text-zinc-500">Cancellation allowed until 2 hours before start time.</div>
       )}
     </div>
   );
@@ -1612,8 +1678,8 @@ function BookingsPage({
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div className="flex items-end justify-between gap-3">
         <div>
-          <div className="text-xl font-semibold">bookings</div>
-          <div className="text-sm text-zinc-600">current and previous (newest first)</div>
+          <div className="text-xl font-semibold">Bookings</div>
+          <div className="text-sm text-zinc-600">Current and previous (newest first)</div>
         </div>
       </div>
 
@@ -1621,11 +1687,11 @@ function BookingsPage({
         <div>
           <div className="flex items-center justify-between">
             <div className="text-sm font-semibold">current</div>
-            <Badge tone="Info">cancel until 2h before</Badge>
+            <Badge tone="Info">Cancel until 2h before</Badge>
           </div>
           <div className="mt-3 grid gap-3">
             {current.length === 0 ? (
-              <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">no current bookings.</div>
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">No current bookings.</div>
             ) : (
               current.map((b) => (
                 <BookingCard
@@ -1642,10 +1708,10 @@ function BookingsPage({
         </div>
 
         <div>
-          <div className="text-sm font-semibold">previous</div>
+          <div className="text-sm font-semibold">Previous</div>
           <div className="mt-3 grid gap-3">
             {previous.length === 0 ? (
-              <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">no previous bookings.</div>
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">No previous bookings.</div>
             ) : (
               previous.map((b) => (
                 <BookingCard
@@ -1785,8 +1851,8 @@ function LoginPage({
 }
 
 export default function App() {
+  const [postLoginView, setPostLoginView] = useState<View>("host");
   const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
   const [spots, setSpots] = useState<Spot[]>([]);
   const [view, setView] = useState<View>("home");
   const [selected, setSelected] = useState<Spot | null>(null);
@@ -1795,6 +1861,11 @@ export default function App() {
   const [checkoutPayload, setCheckoutPayload] = useState<CheckoutPayload | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
+
+  const requireLoginFor = (targetView: View) => {
+    setPostLoginView(targetView);
+    setView("login");
+  };
 
   const handleLogout = async () => {
     const supabase = createClient();
@@ -1853,16 +1924,15 @@ export default function App() {
       } = await supabase.auth.getUser();
 
       setUser(user ?? null);
-      setAuthLoading(false);
     };
 
     loadUser();
+    loadSpots();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
-      setAuthLoading(false);
     });
 
     return () => {
@@ -1937,6 +2007,11 @@ export default function App() {
     setTimeout(() => setToast(null), 2200);
   };
 
+  const openLogin = () => {
+    setPostLoginView("home");
+    setView("login");
+  };
+
   return (
     <div className="min-h-screen bg-white text-zinc-900">
       <TopNav
@@ -1947,13 +2022,15 @@ export default function App() {
         }}
         user={user}
         onLogout={handleLogout}
+        onRequireLoginFor={requireLoginFor}
+        onOpenLogin={openLogin}
       />
 
       {view === "home" && (
         <>
           <Hero
             onGetParking={() => setView("search")}
-            onEarnMoney={() => setView(user ? "host" : "login")}
+            onEarnMoney={() => (user ? setView("host") : requireLoginFor("host"))}
           />
           <div className="mx-auto max-w-6xl px-4 pb-12">
             <div className="grid gap-4 md:grid-cols-3">
@@ -1961,26 +2038,26 @@ export default function App() {
                 <div className="flex items-center gap-2 font-semibold">
                   <Search className="h-4 w-4" /> Search
                 </div>
-                <div className="mt-2 text-sm text-zinc-600">filter by neighborhood, price, and availability.</div>
+                <div className="mt-2 text-sm text-zinc-600">Filter by neighborhood, price, and availability.</div>
               </div>
               <div className="rounded-3xl border border-zinc-200 p-5">
                 <div className="flex items-center gap-2 font-semibold">
                   <MessageSquare className="h-4 w-4" /> Chat
                 </div>
-                <div className="mt-2 text-sm text-zinc-600">confirm details with hosts before arrival.</div>
+                <div className="mt-2 text-sm text-zinc-600">Confirm details with hosts before arrival.</div>
               </div>
               <div className="rounded-3xl border border-zinc-200 p-5">
                 <div className="flex items-center gap-2 font-semibold">
-                  <Wallet className="h-4 w-4" /> pay
+                  <Wallet className="h-4 w-4" /> Pay
                 </div>
-                <div className="mt-2 text-sm text-zinc-600">secure payment flow; address stays masked until booking.</div>
+                <div className="mt-2 text-sm text-zinc-600">Secure payment flow; address stays masked until booking.</div>
               </div>
             </div>
 
             <div className="mt-10 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
-              <div className="text-sm font-semibold">launch note (demo)</div>
+              <div className="text-sm font-semibold">Launch note (demo)</div>
               <div className="mt-2 text-sm text-zinc-700 leading-relaxed">
-                this prototype demonstrates core flows: entry point (get parking / earn money), search + filters, listing
+                This prototype demonstrates core flows: entry point (get parking / earn money), search + filters, listing
                 details, map browse, checkout, and bookings.
               </div>
             </div>
@@ -1991,14 +2068,24 @@ export default function App() {
       {view === "search" && <SearchPage spots={spots} onOpenSpot={openSpot} />}
 
       {view === "detail" && selected && (
-        <SpotDetail spot={selected} onBack={() => setView("search")} onCheckout={startCheckout} />
+        <SpotDetail
+          spot={selected}
+          user={user}
+          onBack={() => setView("search")}
+          onCheckout={startCheckout}
+          onRequireLogin={() => {
+            setToast("Please log in to continue");
+            setTimeout(() => setToast(null), 2200);
+            requireLoginFor("detail");
+          }}
+        />
       )}
 
       {view === "host" && (
         <HostPage
           onCreated={loadSpots}
           user={user}
-          onRequireLogin={() => setView("login")}
+          onRequireLogin={() => requireLoginFor("host")}
         />
       )}
 
@@ -2016,16 +2103,18 @@ export default function App() {
 
       {view === "profile" && (
         <ProfilePage
+          user={user}
           hasPaymentMethod={hasPaymentMethod}
           setHasPaymentMethod={setHasPaymentMethod}
           onGoBookings={() => setView("bookings")}
+          onRequireLogin={() => requireLoginFor("profile")}
         />
       )}
 
       {view === "login" && (
         <LoginPage
           onSuccess={() => {
-            setView("host");
+            setView(postLoginView);
             setToast("Logged in");
             setTimeout(() => setToast(null), 2200);
           }}
