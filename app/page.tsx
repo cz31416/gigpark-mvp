@@ -1,6 +1,7 @@
 'use client';
 
 import { createClient } from "@/lib/supabase/client";
+import type { User } from "@supabase/supabase-js";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   MapPin,
@@ -21,6 +22,8 @@ import {
   X,
   Repeat2,
   ReceiptText,
+  LogIn,
+  LogOut,
 } from "lucide-react";
 
 // GigPark — single-file MVP prototype (React + Tailwind)
@@ -169,14 +172,18 @@ function DifficultyPill({ level }: { level: Spot["difficulty"] }) {
   return <Badge tone={tone}>{level}</Badge>;
 }
 
-type View = "home" | "search" | "detail" | "host" | "bookings" | "chat" | "profile";
+type View = "home" | "search" | "detail" | "host" | "bookings" | "chat" | "profile" | "login";
 
 function TopNav({
   view,
   setView,
+  user,
+  onLogout,
 }: {
   view: View;
   setView: React.Dispatch<React.SetStateAction<View>>;
+  user: User | null;
+  onLogout: () => Promise<void> | void;
 }) {
   const tabs: { id: View; label: string }[] = [
     { id: "home", label: "Home" },
@@ -186,9 +193,10 @@ function TopNav({
     { id: "chat", label: "Chat" },
     { id: "profile", label: "Profile" },
   ];
+
   return (
-    <div className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-zinc-200">
-      <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
+    <div className="sticky top-0 z-40 border-b border-zinc-200 bg-white/80 backdrop-blur">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
         <button onClick={() => setView("home")} className="flex items-center gap-2">
           <img
             src="/20260122 - Logo.png"
@@ -201,62 +209,93 @@ function TopNav({
           </div>
         </button>
 
-        <div className="hidden md:flex items-center gap-1">
+        <div className="hidden items-center gap-1 md:flex">
           {tabs.map((t) => (
             <button
               key={t.id}
               onClick={() => setView(t.id)}
               className={cx(
-                "px-3 py-2 rounded-xl text-sm",
+                "rounded-xl px-3 py-2 text-sm",
                 view === t.id ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-100"
               )}
             >
               {t.label}
             </button>
           ))}
+
+          {user ? (
+            <button
+              onClick={onLogout}
+              className="ml-2 inline-flex items-center gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
+            >
+              <LogOut className="h-4 w-4" />
+              log out
+            </button>
+          ) : (
+            <button
+              onClick={() => setView("login")}
+              className="ml-2 inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-3 py-2 text-sm text-white hover:bg-zinc-800"
+            >
+              <LogIn className="h-4 w-4" />
+              log in
+            </button>
+          )}
         </div>
 
-        <div className="md:hidden flex items-center gap-2">
+        <div className="flex items-center gap-2 md:hidden">
           <button
             onClick={() => setView("search")}
             className={cx(
-              "h-9 w-9 rounded-xl grid place-items-center",
+              "grid h-9 w-9 place-items-center rounded-xl",
               view === "search" ? "bg-zinc-900 text-white" : "bg-zinc-100"
             )}
             aria-label="Find"
           >
             <Search className="h-4 w-4" />
           </button>
+
           <button
-            onClick={() => setView("host")}
+            onClick={() => setView(user ? "host" : "login")}
             className={cx(
-              "h-9 w-9 rounded-xl grid place-items-center",
+              "grid h-9 w-9 place-items-center rounded-xl",
               view === "host" ? "bg-zinc-900 text-white" : "bg-zinc-100"
             )}
             aria-label="Host"
           >
             <Plus className="h-4 w-4" />
           </button>
+
           <button
             onClick={() => setView("bookings")}
             className={cx(
-              "h-9 w-9 rounded-xl grid place-items-center",
+              "grid h-9 w-9 place-items-center rounded-xl",
               view === "bookings" ? "bg-zinc-900 text-white" : "bg-zinc-100"
             )}
             aria-label="Bookings"
           >
             <CalendarDays className="h-4 w-4" />
           </button>
-          <button
-            onClick={() => setView("chat")}
-            className={cx(
-              "h-9 w-9 rounded-xl grid place-items-center",
-              view === "chat" ? "bg-zinc-900 text-white" : "bg-zinc-100"
-            )}
-            aria-label="Chat"
-          >
-            <MessageSquare className="h-4 w-4" />
-          </button>
+
+          {user ? (
+            <button
+              onClick={onLogout}
+              className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-100"
+              aria-label="Log out"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          ) : (
+            <button
+              onClick={() => setView("login")}
+              className={cx(
+                "grid h-9 w-9 place-items-center rounded-xl",
+                view === "login" ? "bg-zinc-900 text-white" : "bg-zinc-100"
+              )}
+              aria-label="Log in"
+            >
+              <LogIn className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -895,15 +934,23 @@ function SearchPage({
   );
 }
 
-function HostPage({ onCreated }: { onCreated: () => Promise<void> | void }) {
+function HostPage({
+  onCreated,
+  user,
+  onRequireLogin,
+}: {
+  onCreated: () => Promise<void> | void;
+  user: User | null;
+  onRequireLogin: () => void;
+}) {
   const [errorMsg, setErrorMsg] = useState("");
   const [title, setTitle] = useState("");
   const [area, setArea] = useState("Côte-des-Neiges");
   const [priceHour, setPriceHour] = useState(4);
   const [priceDay, setPriceDay] = useState(20);
   const [addressHint, setAddressHint] = useState("");
-  const [photo, setPhoto] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState("");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [difficulty, setDifficulty] = useState<Spot["difficulty"]>("Easy");
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -920,17 +967,22 @@ function HostPage({ onCreated }: { onCreated: () => Promise<void> | void }) {
     setErrorMsg("");
     setSubmitted(false);
 
+    if (!user) {
+      onRequireLogin();
+      return;
+    }
+
     const cleanTitle = title.trim();
     const cleanAddressHint = addressHint.trim();
     const hour = Number(priceHour);
     const day = Number(priceDay);
 
-    if (photo && !photo.type.startsWith("image/")) {
+    if (photoFile && !photoFile.type.startsWith("image/")) {
       setErrorMsg("Please upload an image file.");
       return;
     }
 
-    if (photo && photo.size > 5 * 1024 * 1024) {
+    if (photoFile && photoFile.size > 5 * 1024 * 1024) {
       setErrorMsg("Image must be 5MB or smaller.");
       return;
     }
@@ -981,13 +1033,13 @@ function HostPage({ onCreated }: { onCreated: () => Promise<void> | void }) {
 
     let photoUrl = null;
 
-    if (photo) {
-      const fileExt = photo.name.split(".").pop();
+    if (photoFile) {
+      const fileExt = photoFile.name.split(".").pop();
       const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from("spot-photos")
-        .upload(fileName, photo);
+        .upload(fileName, photoFile);
 
       if (uploadError) {
         console.error("Upload error:", uploadError);
@@ -1004,12 +1056,13 @@ function HostPage({ onCreated }: { onCreated: () => Promise<void> | void }) {
     }
 
     const { error } = await supabase.from("spots").insert({
+      owner_id: user.id,
       title: cleanTitle,
       area,
       price_hour: hour,
       price_day: day,
       address_hint: cleanAddressHint,
-      photo: photoUrl,
+      photo_url: photoUrl,
       difficulty,
     });
 
@@ -1027,8 +1080,8 @@ function HostPage({ onCreated }: { onCreated: () => Promise<void> | void }) {
     setPriceHour(4);
     setPriceDay(20);
     setAddressHint("");
-    setPhoto(null);
-    setPhotoPreview("");
+    setPhotoFile(null);
+    setPhotoPreview(null);
     setDifficulty("Easy");
 
     await onCreated();
@@ -1128,7 +1181,7 @@ function HostPage({ onCreated }: { onCreated: () => Promise<void> | void }) {
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0] || null;
-                  setPhoto(file);
+                  setPhotoFile(file);
 
                   if (photoPreview) {
                     URL.revokeObjectURL(photoPreview);
@@ -1137,7 +1190,7 @@ function HostPage({ onCreated }: { onCreated: () => Promise<void> | void }) {
                   if (file) {
                     setPhotoPreview(URL.createObjectURL(file));
                   } else {
-                    setPhotoPreview("");
+                    setPhotoPreview(null);
                   }
                 }}
               />
@@ -1149,9 +1202,9 @@ function HostPage({ onCreated }: { onCreated: () => Promise<void> | void }) {
                 Choose Photo
               </label>
 
-              {photo && (
+              {photoFile && (
                 <div className="text-xs text-zinc-500">
-                  selected: {photo.name}
+                  selected: {photoFile.name}
                 </div>
               )}
 
@@ -1188,12 +1241,18 @@ function HostPage({ onCreated }: { onCreated: () => Promise<void> | void }) {
               </div>
             </div>
 
+            {!user && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                you need to log in before publishing a listing.
+              </div>
+            )}
+
             <button
-              onClick={publishListing}
-              disabled={saving || !title.trim()}
-              className="px-4 py-3 rounded-2xl bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 disabled:bg-zinc-300"
+              onClick={user ? publishListing : onRequireLogin}
+              disabled={saving || (!user && false) || (user && !title.trim())}
+              className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:bg-zinc-300"
             >
-              {saving ? "Publishing..." : "Publish Listing"}
+              {saving ? "Publishing..." : user ? "Publish Listing" : "Log in to Publish"}
             </button>
 
             {errorMsg && (
@@ -1606,7 +1665,146 @@ function BookingsPage({
   );
 }
 
+function LoginPage({
+  onSuccess,
+}: {
+  onSuccess: () => void;
+}) {
+  const supabase = createClient();
+
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage("");
+
+    try {
+      if (mode === "login") {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (error) {
+          setMessage(error.message);
+          return;
+        }
+
+        onSuccess();
+      } else {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+        });
+
+        if (error) {
+          setMessage(error.message);
+          return;
+        }
+
+        setMessage("account created. you can now log in.");
+        setMode("login");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto max-w-md px-4 py-10">
+      <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+        <div className="text-2xl font-semibold">
+          {mode === "login" ? "log in" : "create account"}
+        </div>
+        <div className="mt-2 text-sm text-zinc-600">
+          you need an account to publish a parking spot
+        </div>
+
+        <form onSubmit={handleSubmit} className="mt-6 grid gap-4">
+          <label className="grid gap-1">
+            <span className="text-xs text-zinc-500">Email</span>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+            />
+          </label>
+
+          <label className="grid gap-1">
+            <span className="text-xs text-zinc-500">Password</span>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:bg-zinc-300"
+          >
+            {loading
+              ? "please wait..."
+              : mode === "login"
+              ? "log in"
+              : "create account"}
+          </button>
+        </form>
+
+        {message && (
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+            {message}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => {
+            setMessage("");
+            setMode(mode === "login" ? "signup" : "login");
+          }}
+          className="mt-4 text-sm text-zinc-600 underline"
+        >
+          {mode === "login"
+            ? "need an account? sign up"
+            : "already have an account? log in"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [spots, setSpots] = useState<Spot[]>([]);
+  const [view, setView] = useState<View>("home");
+  const [selected, setSelected] = useState<Spot | null>(null);
+  const [hasPaymentMethod, setHasPaymentMethod] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutPayload, setCheckoutPayload] = useState<CheckoutPayload | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+
+  const handleLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    setUser(null);
+    setView("home");
+    setToast("Logged out");
+    setTimeout(() => setToast(null), 2200);
+  };
+
   const loadSpots = async () => {
     const supabase = createClient();
 
@@ -1614,6 +1812,7 @@ export default function App() {
 
     if (error) {
       console.error("Supabase error:", error);
+      setToast("Failed to load spots");
       return;
     }
 
@@ -1638,7 +1837,7 @@ export default function App() {
         },
         host: { name: "Host", rating: 4.8, reviews: 0 },
         features: s.features ?? [],
-        photo: s.photo ?? null,
+        photo: s.photo_url ?? null,
         lat: Number(s.lat ?? 45.5),
         lng: Number(s.lng ?? -73.6),
       }))
@@ -1646,17 +1845,30 @@ export default function App() {
   };
 
   useEffect(() => {
-    loadSpots();
-  }, []);
+    const supabase = createClient();
 
-  const [spots, setSpots] = useState<Spot[]>([]);
-  const [view, setView] = useState<View>("home");
-  const [selected, setSelected] = useState<Spot | null>(null);
-  const [hasPaymentMethod, setHasPaymentMethod] = useState(false);
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [checkoutPayload, setCheckoutPayload] = useState<CheckoutPayload | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-  const [bookings, setBookings] = useState<Booking[]>([]);
+    const loadUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      setUser(user ?? null);
+      setAuthLoading(false);
+    };
+
+    loadUser();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const openSpot = (spot: Spot) => {
     setSelected(spot);
@@ -1733,11 +1945,16 @@ export default function App() {
           setSelected(null);
           setView(v);
         }}
+        user={user}
+        onLogout={handleLogout}
       />
 
       {view === "home" && (
         <>
-          <Hero onGetParking={() => setView("search")} onEarnMoney={() => setView("host")} />
+          <Hero
+            onGetParking={() => setView("search")}
+            onEarnMoney={() => setView(user ? "host" : "login")}
+          />
           <div className="mx-auto max-w-6xl px-4 pb-12">
             <div className="grid gap-4 md:grid-cols-3">
               <div className="rounded-3xl border border-zinc-200 p-5">
@@ -1777,7 +1994,14 @@ export default function App() {
         <SpotDetail spot={selected} onBack={() => setView("search")} onCheckout={startCheckout} />
       )}
 
-     {view === "host" && <HostPage onCreated={loadSpots} />}
+      {view === "host" && (
+        <HostPage
+          onCreated={loadSpots}
+          user={user}
+          onRequireLogin={() => setView("login")}
+        />
+      )}
+
       {view === "chat" && <ChatPage onProposeDeal={proposeDeal} />}
 
       {view === "bookings" && (
@@ -1795,6 +2019,16 @@ export default function App() {
           hasPaymentMethod={hasPaymentMethod}
           setHasPaymentMethod={setHasPaymentMethod}
           onGoBookings={() => setView("bookings")}
+        />
+      )}
+
+      {view === "login" && (
+        <LoginPage
+          onSuccess={() => {
+            setView("host");
+            setToast("Logged in");
+            setTimeout(() => setToast(null), 2200);
+          }}
         />
       )}
 
