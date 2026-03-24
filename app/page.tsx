@@ -890,6 +890,9 @@ function CheckoutModal({
         <div className="p-5 grid gap-4">
           <div className="rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
             <div className="text-sm font-semibold">{spot.title}</div>
+            <div className="mt-1 text-[11px] text-zinc-400">
+              Owner: {spot.owner_id || "none"}
+            </div>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
               <span className="inline-flex items-center gap-1">
                 <MapPin className="h-4 w-4" /> {spot.area}
@@ -1841,6 +1844,11 @@ function MyListingsPage({
   const deactivateListing = async (spotId: string) => {
     if (!user) return;
 
+    console.log("Deactivate attempt", {
+      userId: user.id,
+      spotId,
+    });
+
     setBusyId(spotId);
     const supabase = createClient();
 
@@ -1859,13 +1867,16 @@ function MyListingsPage({
     }
 
     await onRefresh();
-    onToast("Listing deactivated");
+    onToast("Listing deactivated.");
   };
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div>
         <div className="text-xl font-semibold">My listings</div>
+        <div className="mt-1 text-xs text-zinc-400">
+          Current user: {user?.id || "none"}
+        </div>
         <div className="text-sm text-zinc-600">
           Manage your active and inactive parking listings
         </div>
