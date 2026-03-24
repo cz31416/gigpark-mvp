@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   MapPin,
   Search,
@@ -49,6 +49,8 @@ type Availability = Record<DayKey, [string, string] | null>;
 
 type Spot = {
   id: string;
+  owner_id?: string;
+  is_active?: boolean;
   title: string;
   area: string;
   priceHour: number;
@@ -136,9 +138,9 @@ function countdownLabel(startAt: Date) {
 const TAX = { gst: 0.05, qst: 0.09975 };
 
 const MOCK_MESSAGES = [
-  { from: "alex", side: "them", text: "hi! what time are you arriving?" },
-  { from: "you", side: "me", text: "around 9:15am. is the driveway entrance on the left?" },
-  { from: "alex", side: "them", text: "yes—left side. i'll send exact pin after booking." },
+  { from: "Alex", side: "them", text: "Hi! What time are you arriving?" },
+  { from: "You", side: "me", text: "Around 9:15 a.m. Is the driveway entrance on the left?" },
+  { from: "Alex", side: "them", text: "Yes, on the left side. I will send the exact pin after booking." },
 ];
 
 function Badge({
@@ -172,7 +174,16 @@ function DifficultyPill({ level }: { level: Spot["difficulty"] }) {
   return <Badge tone={tone}>{level}</Badge>;
 }
 
-type View = "home" | "search" | "detail" | "host" | "bookings" | "chat" | "profile" | "login";
+type View =
+  | "home"
+  | "search"
+  | "detail"
+  | "host"
+  | "bookings"
+  | "my-listings"
+  | "chat"
+  | "profile"
+  | "login";
 
 function TopNav({
   view,
@@ -183,7 +194,7 @@ function TopNav({
   onOpenLogin,
 }: {
   view: View;
-  setView: React.Dispatch<React.SetStateAction<View>>;
+  setView: (view: View) => void;
   user: User | null;
   onLogout: () => Promise<void> | void;
   onRequireLoginFor: (view: View) => void;
@@ -191,8 +202,9 @@ function TopNav({
 }) {
   const tabs: { id: View; label: string }[] = [
     { id: "home", label: "Home" },
-    { id: "search", label: "Find Parking" },
-    { id: "host", label: "List a Spot" },
+    { id: "search", label: "Find parking" },
+    { id: "host", label: "List a spot" },
+    { id: "my-listings", label: "My listings" },
     { id: "bookings", label: "Bookings" },
     { id: "chat", label: "Chat" },
     { id: "profile", label: "Profile" },
@@ -200,118 +212,147 @@ function TopNav({
 
   return (
     <div className="sticky top-0 z-40 border-b border-zinc-200 bg-white/80 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-        <button onClick={() => setView("home")} className="flex items-center gap-2">
-          <img
-            src="/20260122 - Logo.png"
-            alt="GigPark"
-            className="h-9 w-9 rounded-2xl object-cover"
-          />
-          <div className="leading-tight">
-            <div className="text-sm font-semibold">GigPark</div>
-            <div className="text-xs text-zinc-500">Peer-to-peer residential parking</div>
+      <div className="flex w-full justify-center px-4 py-3">
+        <div className="flex w-full max-w-6xl items-center justify-between">
+          <button
+            onClick={() => setView("home")}
+            className="flex items-center gap-2 text-left"
+          >
+            <img
+              src="/20260122 - Logo.png"
+              alt="GigPark"
+              className="h-9 w-9 rounded-2xl object-cover"
+            />
+            <div className="leading-tight text-left">
+              <div className="text-sm font-semibold">GigPark</div>
+              <div className="text-xs text-zinc-500">
+                Peer-to-peer residential parking
+              </div>
+            </div>
+          </button>
+
+          <div className="hidden items-center gap-1 md:flex">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  if (t.id === "profile" && !user) {
+                    onRequireLoginFor("profile");
+                    return;
+                  }
+
+                  if (
+                    (t.id === "bookings" ||
+                      t.id === "chat" ||
+                      t.id === "my-listings") &&
+                    !user
+                  ) {
+                    onRequireLoginFor(t.id);
+                    return;
+                  }
+
+                  setView(t.id);
+                }}
+                className={cx(
+                  "rounded-xl px-3 py-2 text-sm",
+                  view === t.id
+                    ? "bg-zinc-900 text-white"
+                    : "text-zinc-700 hover:bg-zinc-100"
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+
+            {user ? (
+              <button
+                onClick={onLogout}
+                className="ml-2 inline-flex items-center gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
+              >
+                <LogOut className="h-4 w-4" />
+                Log out
+              </button>
+            ) : (
+              <button
+                onClick={onOpenLogin}
+                className="ml-2 inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-3 py-2 text-sm text-white hover:bg-zinc-800"
+              >
+                <LogIn className="h-4 w-4" />
+                Log in
+              </button>
+            )}
           </div>
-        </button>
 
-        <div className="hidden items-center gap-1 md:flex">
-          {tabs.map((t) => (
+          <div className="flex items-center gap-2 md:hidden">
             <button
-              key={t.id}
-              onClick={() => {
-                if (t.id === "profile" && !user) {
-                  onRequireLoginFor("profile");
-                  return;
-                }
-
-                if ((t.id === "bookings" || t.id === "chat") && !user) {
-                  onRequireLoginFor(t.id);
-                  return;
-                }
-
-                setView(t.id);
-              }}
-              className={cx(
-                "rounded-xl px-3 py-2 text-sm",
-                view === t.id ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-100"
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-
-          {user ? (
-            <button
-              onClick={onLogout}
-              className="ml-2 inline-flex items-center gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
-            >
-              <LogOut className="h-4 w-4" />
-              Log Out
-            </button>
-          ) : (
-            <button
-              onClick={onOpenLogin}
-              className="ml-2 inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-3 py-2 text-sm text-white hover:bg-zinc-800"
-            >
-              <LogIn className="h-4 w-4" />
-              Log In
-            </button>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 md:hidden">
-          <button
-            onClick={() => setView("search")}
-            className={cx(
-              "grid h-9 w-9 place-items-center rounded-xl",
-              view === "search" ? "bg-zinc-900 text-white" : "bg-zinc-100"
-            )}
-            aria-label="Find"
-          >
-            <Search className="h-4 w-4" />
-          </button>
-
-          <button
-            onClick={() => (user ? setView("host") : onRequireLoginFor("host"))}
-            className={cx(
-              "grid h-9 w-9 place-items-center rounded-xl",
-              view === "host" ? "bg-zinc-900 text-white" : "bg-zinc-100"
-            )}
-            aria-label="Host"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
-
-          <button
-            onClick={() => (user ? setView("bookings") : onRequireLoginFor("bookings"))}
-            className={cx(
-              "grid h-9 w-9 place-items-center rounded-xl",
-              view === "bookings" ? "bg-zinc-900 text-white" : "bg-zinc-100"
-            )}
-            aria-label="Bookings"
-          >
-            <CalendarDays className="h-4 w-4" />
-          </button>
-
-          {user ? (
-            <button
-              onClick={onLogout}
-              className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-100"
-              aria-label="Log out"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
-          ) : (
-            <button
-              onClick={onOpenLogin}
+              onClick={() => setView("search")}
               className={cx(
                 "grid h-9 w-9 place-items-center rounded-xl",
-                view === "login" ? "bg-zinc-900 text-white" : "bg-zinc-100"
+                view === "search" ? "bg-zinc-900 text-white" : "bg-zinc-100"
               )}
-              aria-label="Log In"
+              aria-label="Find"
             >
-              <LogIn className="h-4 w-4" />
+              <Search className="h-4 w-4" />
             </button>
-          )}
+
+            <button
+              onClick={() => (user ? setView("host") : onRequireLoginFor("host"))}
+              className={cx(
+                "grid h-9 w-9 place-items-center rounded-xl",
+                view === "host" ? "bg-zinc-900 text-white" : "bg-zinc-100"
+              )}
+              aria-label="Host"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+
+            <button
+              onClick={() =>
+                user ? setView("my-listings") : onRequireLoginFor("my-listings")
+              }
+              className={cx(
+                "grid h-9 w-9 place-items-center rounded-xl",
+                view === "my-listings" ? "bg-zinc-900 text-white" : "bg-zinc-100"
+              )}
+              aria-label="My listings"
+            >
+              <Home className="h-4 w-4" />
+            </button>
+
+            <button
+              onClick={() =>
+                user ? setView("bookings") : onRequireLoginFor("bookings")
+              }
+              className={cx(
+                "grid h-9 w-9 place-items-center rounded-xl",
+                view === "bookings" ? "bg-zinc-900 text-white" : "bg-zinc-100"
+              )}
+              aria-label="Bookings"
+            >
+              <CalendarDays className="h-4 w-4" />
+            </button>
+
+            {user ? (
+              <button
+                onClick={onLogout}
+                className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-100"
+                aria-label="Log out"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            ) : (
+              <button
+                onClick={onOpenLogin}
+                className={cx(
+                  "grid h-9 w-9 place-items-center rounded-xl",
+                  view === "login" ? "bg-zinc-900 text-white" : "bg-zinc-100"
+                )}
+                aria-label="Log in"
+              >
+                <LogIn className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -337,26 +378,26 @@ function Hero({
             Park near where you actually need to be.
           </h1>
           <p className="mt-3 text-zinc-600 leading-relaxed">
-            GigPark helps residents rent out unused driveway and condo spots; so drivers can book reliable parking by the hour, day, or month.
+            GigPark helps residents rent out unused driveways and condo spots so drivers can book reliable parking by the hour, day, or month.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button
               onClick={onGetParking}
               className="px-5 py-3 rounded-2xl bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800"
             >
-              Get Parking
+              Get parking
             </button>
             <button
               onClick={onEarnMoney}
               className="px-5 py-3 rounded-2xl bg-white border border-zinc-300 text-zinc-900 text-sm font-medium hover:bg-zinc-50"
             >
-              Earn Money
+              Earn money
             </button>
           </div>
           <div className="mt-6 grid grid-cols-3 gap-3">
             <div className="rounded-2xl border border-zinc-200 p-3">
-              <div className="text-xs text-zinc-500">Avg booking</div>
-              <div className="mt-1 text-lg font-semibold">10–30 min</div>
+              <div className="text-xs text-zinc-500">Average booking</div>
+              <div className="mt-1 text-lg font-semibold">10-30 min</div>
             </div>
             <div className="rounded-2xl border border-zinc-200 p-3">
               <div className="text-xs text-zinc-500">Trust</div>
@@ -364,7 +405,7 @@ function Hero({
             </div>
             <div className="rounded-2xl border border-zinc-200 p-3">
               <div className="text-xs text-zinc-500">Payments</div>
-              <div className="mt-1 text-lg font-semibold">In-App</div>
+              <div className="mt-1 text-lg font-semibold">In-app</div>
             </div>
           </div>
         </div>
@@ -372,14 +413,14 @@ function Hero({
           <div className="rounded-3xl overflow-hidden border border-zinc-200 shadow-sm">
             <img
               src="https://images.unsplash.com/photo-1528920304568-6f1f8a4d52af?auto=format&fit=crop&w=1600&q=60"
-              alt="street parking"
+              alt="Street parking"
               className="h-[420px] w-full object-cover"
             />
           </div>
           <div className="absolute -bottom-5 left-6 right-6 rounded-3xl bg-white border border-zinc-200 shadow-sm p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-sm font-semibold truncate">driveway spot — 2 min to HEC</div>
+                <div className="text-sm font-semibold truncate">Driveway Spot — 2 Min to HEC</div>
                 <div className="mt-1 flex items-center gap-2 text-xs text-zinc-600">
                   <MapPin className="h-3.5 w-3.5" />
                   <span className="truncate">Côte-des-Neiges</span>
@@ -395,7 +436,7 @@ function Hero({
                 <span>4.8 (31)</span>
               </div>
               <button className="text-xs font-medium px-3 py-2 rounded-xl bg-zinc-900 text-white hover:bg-zinc-800">
-                book now
+                Book now
               </button>
             </div>
           </div>
@@ -440,7 +481,7 @@ function FiltersBar({
           <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 px-3 py-2">
             <MapPin className="h-4 w-4 text-zinc-600" />
             <select value={area} onChange={(e) => setArea(e.target.value)} className="text-sm outline-none bg-transparent">
-              <option value="">all areas</option>
+              <option value="">All Areas</option>
               <option value="Côte-des-Neiges">Côte-des-Neiges</option>
               <option value="Outremont">Outremont</option>
               <option value="Plateau">Plateau</option>
@@ -449,7 +490,7 @@ function FiltersBar({
           </div>
           <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 px-3 py-2">
             <SlidersHorizontal className="h-4 w-4 text-zinc-600" />
-            <span className="text-sm">max {money(priceMax)}/hr</span>
+            <span className="text-sm">Max {money(priceMax)}/hr</span>
             <input
               type="range"
               min={1}
@@ -462,15 +503,15 @@ function FiltersBar({
           <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 px-3 py-2">
             <Filter className="h-4 w-4 text-zinc-600" />
             <button onClick={() => setViewMode(viewMode === "list" ? "map" : "list")} className="text-sm font-medium">
-              {viewMode === "list" ? "switch to map" : "switch to list"}
+              {viewMode === "list" ? "Switch to map" : "Switch to list"}
             </button>
           </div>
         </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
-        <Badge tone="Info">filters: date • price • location</Badge>
-        <Badge>no exact address until booking</Badge>
-        <Badge tone="Good">owner-authorized spots only</Badge>
+        <Badge tone="Info">Filters: Date • Price • Location</Badge>
+        <Badge>No exact address until booking</Badge>
+        <Badge tone="Good">Owner-authorized spots only</Badge>
       </div>
     </div>
   );
@@ -557,12 +598,14 @@ function BubbleMap({
 
   return (
     <div className="rounded-3xl border border-zinc-200 bg-white overflow-hidden">
-      <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between">
+      <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
         <div className="flex items-center gap-2">
           <MapPin className="h-4 w-4" />
-          <div className="text-sm font-semibold">map search</div>
+          <div className="text-sm font-semibold">Map search</div>
         </div>
-        <div className="text-xs text-zinc-600">bubble size = price • badge color = difficulty</div>
+        <div className="text-xs text-zinc-600">
+          Bubble size = price • Badge color = difficulty
+        </div>
       </div>
       <div className="relative h-[420px] bg-gradient-to-br from-zinc-50 to-zinc-100">
         <div className="absolute inset-0 opacity-40">
@@ -605,7 +648,7 @@ function BubbleMap({
 
         <div className="absolute bottom-4 left-4 rounded-2xl bg-white border border-zinc-200 px-3 py-2 text-xs text-zinc-700 flex items-center gap-2">
           <SlidersHorizontal className="h-4 w-4" />
-          <span>map filters: price • availability • car size</span>
+          <span>Map filters: price • availability • car size</span>
         </div>
       </div>
     </div>
@@ -709,7 +752,9 @@ function SpotDetail({
                   </span>
                 </div>
               </div>
-              <div className="mt-2 text-sm text-zinc-600">{spot.host.name} • responds fast • exact address after booking</div>
+              <div className="mt-2 text-sm text-zinc-600">
+                {spot.host.name} • Responds quickly • Exact address provided after booking
+              </div>
             </div>
           </div>
         </div>
@@ -725,14 +770,14 @@ function SpotDetail({
               <div className="flex flex-wrap gap-2">
                 {days.map((d) => (
                   <button
-                    key={d}
+                    key={d.charAt(0).toUpperCase() + d.slice(1)}
                     onClick={() => setDay(d)}
                     className={cx(
                       "px-3 py-2 rounded-xl text-sm",
                       day === d ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700"
                     )}
                   >
-                    {d}
+                    {d.charAt(0).toUpperCase() + d.slice(1)}
                   </button>
                 ))}
               </div>
@@ -742,7 +787,7 @@ function SpotDetail({
               <div className="text-xs text-zinc-500 mb-1">Availability</div>
               <div className="flex items-center gap-2 text-sm text-zinc-700">
                 <Clock className="h-4 w-4" />
-                <span>{av ? `${av[0]}–${av[1]}` : "not available"}</span>
+                <span>{av ? `${av[0]}–${av[1]}` : "Not available"}</span>
               </div>
             </div>
 
@@ -783,7 +828,9 @@ function SpotDetail({
                 <span className="text-zinc-600">Total</span>
                 <span className="font-semibold">{money(total)}</span>
               </div>
-              <div className="mt-2 text-xs text-zinc-500">Final details confirmed in chat. payment required to confirm.</div>
+              <div className="mt-2 text-xs text-zinc-500">
+                Final details are confirmed in chat. Payment is required to confirm the booking.
+              </div>
             </div>
 
             <button
@@ -794,13 +841,13 @@ function SpotDetail({
                 av ? "bg-zinc-900 text-white hover:bg-zinc-800" : "bg-zinc-200 text-zinc-500 cursor-not-allowed"
               )}
             >
-              {user ? "Book & Pay" : "log in to book"}
+              {user ? "Book and pay" : "Log in to book"}
             </button>
           </div>
 
           <div className="mt-4 text-xs text-zinc-600 flex items-center gap-2">
             <ShieldCheck className="h-4 w-4" />
-            Address stays masked until booking
+            The address stays masked until booking.
           </div>
         </div>
       </div>
@@ -831,12 +878,12 @@ function CheckoutModal({
           <div className="flex items-center gap-2">
             <Wallet className="h-5 w-5" />
             <div>
-              <div className="text-sm font-semibold">checkout</div>
-              <div className="text-xs text-zinc-500">pay to confirm booking</div>
+              <div className="text-sm font-semibold">Checkout</div>
+              <div className="text-xs text-zinc-500">Pay to confirm booking</div>
             </div>
           </div>
           <button onClick={onClose} className="text-sm text-zinc-600 hover:text-zinc-900">
-            close
+            Close
           </button>
         </div>
 
@@ -848,38 +895,38 @@ function CheckoutModal({
                 <MapPin className="h-4 w-4" /> {spot.area}
               </span>
               <span className="text-zinc-300">•</span>
-              <span>{day}</span>
+              <span>{day.charAt(0).toUpperCase() + day.slice(1)}</span>
               <span className="text-zinc-300">•</span>
               <span>{durationHours} hours</span>
             </div>
-            <div className="mt-2 text-xs text-zinc-500">starts: {fmtDateTime(startAt)}</div>
+            <div className="mt-2 text-xs text-zinc-500">Starts: {fmtDateTime(startAt)}</div>
           </div>
 
           <div className="grid gap-2">
-            <div className="text-xs text-zinc-500">payment method</div>
+            <div className="text-xs text-zinc-500">Payment method</div>
             <div className="rounded-2xl border border-zinc-200 p-4 flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm">
                 <CreditCard className="h-4 w-4" />
-                <span>{hasPaymentMethod ? "card ending •••• 1234" : "no payment method"}</span>
+                <span>{hasPaymentMethod ? "Card ending •••• 1234" : "No payment method"}</span>
               </div>
-              <button className="text-sm text-zinc-700 hover:text-zinc-900">change</button>
+              <button className="text-sm text-zinc-700 hover:text-zinc-900">Change</button>
             </div>
           </div>
 
           <div className="rounded-2xl border border-zinc-200 p-4">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-zinc-600">subtotal</span>
+              <span className="text-zinc-600">Subtotal</span>
               <span className="font-semibold">{money(subtotal)}</span>
             </div>
             <div className="mt-1 flex items-center justify-between text-sm">
-              <span className="text-zinc-600">gst + qst</span>
+              <span className="text-zinc-600">GST + QST</span>
               <span className="font-semibold">{money(tax)}</span>
             </div>
             <div className="mt-2 pt-2 border-t border-zinc-200 flex items-center justify-between text-sm">
-              <span className="text-zinc-600">total</span>
+              <span className="text-zinc-600">Total</span>
               <span className="font-semibold">{money(total)}</span>
             </div>
-            <div className="mt-2 text-xs text-zinc-500">funds are held until the booking window starts.</div>
+            <div className="mt-2 text-xs text-zinc-500">Funds are held until the booking window starts.</div>
           </div>
 
           <button
@@ -890,14 +937,14 @@ function CheckoutModal({
               hasPaymentMethod ? "bg-zinc-900 text-white hover:bg-zinc-800" : "bg-zinc-200 text-zinc-500 cursor-not-allowed"
             )}
           >
-            confirm payment
+            Confirm payment
           </button>
 
           {!hasPaymentMethod && (
-            <div className="text-xs text-rose-600">add a payment method in profile to complete checkout.</div>
+            <div className="text-xs text-rose-600">Add a payment method in profile to complete checkout.</div>
           )}
 
-          <div className="text-xs text-zinc-600">by paying, you agree this is a private, owner-authorized parking space.</div>
+          <div className="text-xs text-zinc-600">By paying, you agree that this is a private, owner-authorized parking space.</div>
         </div>
       </div>
     </div>
@@ -935,12 +982,12 @@ function SearchPage({
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div className="flex items-end justify-between gap-3">
         <div>
-          <div className="text-xl font-semibold">find parking</div>
-          <div className="text-sm text-zinc-600">search, filter, and book in minutes</div>
+          <div className="text-xl font-semibold">Find parking</div>
+          <div className="text-sm text-zinc-600">Search, filter, and book in minutes</div>
         </div>
         <div className="hidden md:flex items-center gap-2 text-xs text-zinc-600">
-          <Badge tone="Good">Get Parking</Badge>
-          <Badge>earn money</Badge>
+          <Badge tone="Good">Get parking</Badge>
+          <Badge>Earn money</Badge>
         </div>
       </div>
 
@@ -969,7 +1016,9 @@ function SearchPage({
         )}
 
         {filtered.length === 0 && (
-          <div className="mt-8 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">no results—try widening filters.</div>
+          <div className="mt-8 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">
+            No results. Try widening your filters.
+          </div>
         )}
       </div>
     </div>
@@ -985,6 +1034,7 @@ function HostPage({
   user: User | null;
   onRequireLogin: () => void;
 }) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [title, setTitle] = useState("");
   const [area, setArea] = useState("Côte-des-Neiges");
@@ -1006,6 +1056,7 @@ function HostPage({
   }, [photoPreview]);
 
   const publishListing = async () => {
+    if (saving) return;
     setErrorMsg("");
     setSubmitted(false);
 
@@ -1099,6 +1150,7 @@ function HostPage({
 
     const { error } = await supabase.from("spots").insert({
       owner_id: user.id,
+      is_active: true,
       title: cleanTitle,
       area,
       price_hour: hour,
@@ -1106,6 +1158,7 @@ function HostPage({
       address_hint: cleanAddressHint,
       photo_url: photoUrl,
       difficulty,
+      description: "",
     });
 
     setSaving(false);
@@ -1126,27 +1179,35 @@ function HostPage({
     setPhotoPreview(null);
     setDifficulty("Easy");
 
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+
     await onCreated();
   };
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div>
-        <div className="text-xl font-semibold">List a Spot</div>
+        <div className="text-xl font-semibold">List a spot</div>
         <div className="text-sm text-zinc-600">Earn money from your unused driveway or condo spot</div>
       </div>
 
       <div className="mt-6 grid gap-6 md:grid-cols-2">
         <div className="rounded-3xl border border-zinc-200 bg-white p-5">
-          <div className="text-sm font-semibold">Create Listing</div>
+          <div className="text-sm font-semibold">Create listing</div>
 
           <div className="mt-4 grid gap-3">
             <label className="grid gap-1">
               <span className="text-xs text-zinc-500">Title</span>
               <input
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="E.g., driveway spot near metro"
+                onChange={(e) => {
+                  setSubmitted(false);
+                  setErrorMsg("");
+                  setTitle(e.target.value);
+                }}
+                placeholder="For example, driveway spot near metro"
                 className={`rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 ${
                   errorMsg.toLowerCase().includes("title")
                     ? "border-red-300 focus:ring-red-100"
@@ -1159,7 +1220,11 @@ function HostPage({
               <span className="text-xs text-zinc-500">Area</span>
               <select
                 value={area}
-                onChange={(e) => setArea(e.target.value)}
+                onChange={(e) => {
+                  setSubmitted(false);
+                  setErrorMsg("");
+                  setArea(e.target.value);
+                }}
                 className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
               >
                 <option value="Côte-des-Neiges">Côte-des-Neiges</option>
@@ -1175,7 +1240,11 @@ function HostPage({
                 type="number"
                 min={1}
                 value={priceHour}
-                onChange={(e) => setPriceHour(Number(e.target.value))}
+                onChange={(e) => {
+                  setSubmitted(false);
+                  setErrorMsg("");
+                  setPriceHour(Number(e.target.value));
+                }}
                 className={`rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 ${
                   errorMsg.toLowerCase().includes("hour")
                     ? "border-red-300 focus:ring-red-100"
@@ -1190,7 +1259,11 @@ function HostPage({
                 type="number"
                 min={1}
                 value={priceDay}
-                onChange={(e) => setPriceDay(Number(e.target.value))}
+                onChange={(e) => {
+                  setSubmitted(false);
+                  setErrorMsg("");
+                  setPriceDay(Number(e.target.value));
+                }}
                 className={`rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 ${
                   errorMsg.toLowerCase().includes("day")
                     ? "border-red-300 focus:ring-red-100"
@@ -1203,8 +1276,12 @@ function HostPage({
               <span className="text-xs text-zinc-500">Address hint</span>
               <input
                 value={addressHint}
-                onChange={(e) => setAddressHint(e.target.value)}
-                placeholder="E.g., near metro / behind church"
+                onChange={(e) => {
+                  setSubmitted(false);
+                  setErrorMsg("");
+                  setAddressHint(e.target.value);
+                }}
+                placeholder="For example, near metro / behind church"
                 className={`rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 ${
                   errorMsg.toLowerCase().includes("address")
                     ? "border-red-300 focus:ring-red-100"
@@ -1217,11 +1294,14 @@ function HostPage({
               <span className="text-xs text-zinc-500">Photo (optional)</span>
 
               <input
+                ref={fileInputRef}
                 id="spot-photo-upload"
                 type="file"
                 accept="image/*"
                 className="hidden"
                 onChange={(e) => {
+                  setSubmitted(false);
+                  setErrorMsg("");
                   const file = e.target.files?.[0] || null;
                   setPhotoFile(file);
 
@@ -1241,12 +1321,12 @@ function HostPage({
                 htmlFor="spot-photo-upload"
                 className="inline-flex w-fit cursor-pointer items-center rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
               >
-                Choose Photo
+                Choose photo
               </label>
 
               {photoFile && (
                 <div className="text-xs text-zinc-500">
-                  selected: {photoFile.name}
+                  Selected: {photoFile.name}
                 </div>
               )}
 
@@ -1254,7 +1334,7 @@ function HostPage({
                 <div className="mt-2 overflow-hidden rounded-2xl border border-zinc-200">
                   <img
                     src={photoPreview}
-                    alt="preview"
+                    alt="Preview"
                     className="h-40 w-full object-cover"
                   />
                 </div>
@@ -1265,7 +1345,11 @@ function HostPage({
               <span className="text-xs text-zinc-500">Difficulty</span>
               <select
                 value={difficulty}
-                onChange={(e) => setDifficulty(e.target.value as Spot["difficulty"])}
+                onChange={(e) => {
+                  setSubmitted(false);
+                  setErrorMsg("");
+                  setDifficulty(e.target.value as Spot["difficulty"]);
+                }}
                 className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
               >
                 <option value="Easy">Easy</option>
@@ -1279,7 +1363,7 @@ function HostPage({
                 <Home className="h-4 w-4" /> Owner-authorized only
               </div>
               <div className="mt-1 text-xs text-zinc-600">
-                You control availability, rules, and who books. exact address stays hidden until a booking is confirmed.
+                You control availability, rules, and who books. The exact address stays hidden until a booking is confirmed.
               </div>
             </div>
 
@@ -1291,10 +1375,19 @@ function HostPage({
 
             <button
               onClick={user ? publishListing : onRequireLogin}
-              disabled={saving || (user !== null && !title.trim())}
+              disabled={
+                saving ||
+                (user !== null &&
+                  (!title.trim() ||
+                    !addressHint.trim() ||
+                    !Number.isFinite(Number(priceHour)) ||
+                    Number(priceHour) <= 0 ||
+                    !Number.isFinite(Number(priceDay)) ||
+                    Number(priceDay) <= 0))
+              }
               className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:bg-zinc-300"
             >
-              {saving ? "Publishing..." : user ? "Publish Listing" : "Log in to Publish"}
+              {saving ? "Publishing..." : user ? "Publish listing" : "Log in to publish"}
             </button>
 
             {errorMsg && (
@@ -1308,6 +1401,7 @@ function HostPage({
                 Listing created successfully.
               </div>
             )}
+
           </div>
         </div>
 
@@ -1358,7 +1452,7 @@ function ChatPage({ onProposeDeal }: { onProposeDeal: (amount: number) => void }
   const send = () => {
     const t = draft.trim();
     if (!t) return;
-    setMsgs((m) => [...m, { from: "you", side: "me", text: t }]);
+    setMsgs((m) => [...m, { from: "You", side: "me", text: t }]);
     setDraft("");
   };
 
@@ -1367,13 +1461,13 @@ function ChatPage({ onProposeDeal }: { onProposeDeal: (amount: number) => void }
       <div className="grid gap-6 md:grid-cols-[320px_1fr]">
         <div className="rounded-3xl border border-zinc-200 bg-white overflow-hidden">
           <div className="p-4 border-b border-zinc-200">
-            <div className="text-sm font-semibold">messages</div>
-            <div className="text-xs text-zinc-500">your conversations</div>
+            <div className="text-sm font-semibold">Messages</div>
+            <div className="text-xs text-zinc-500">Your conversations</div>
           </div>
           <div className="p-2">
             <button className="w-full text-left p-3 rounded-2xl bg-zinc-100">
-              <div className="text-sm font-semibold">alex</div>
-              <div className="text-xs text-zinc-600 truncate">hi! what time are you arriving?</div>
+              <div className="text-sm font-semibold">Alex</div>
+              <div className="text-xs text-zinc-600 truncate">Hi! What time are you arriving?</div>
             </button>
           </div>
         </div>
@@ -1381,14 +1475,14 @@ function ChatPage({ onProposeDeal }: { onProposeDeal: (amount: number) => void }
         <div className="rounded-3xl border border-zinc-200 bg-white overflow-hidden">
           <div className="p-4 border-b border-zinc-200 flex items-center justify-between">
             <div>
-              <div className="text-sm font-semibold">alex</div>
-              <div className="text-xs text-zinc-500">convo head • booking details</div>
+              <div className="text-sm font-semibold">Alex</div>
+              <div className="text-xs text-zinc-500">Conversation thread • Booking details</div>
             </div>
             <button
               onClick={() => onProposeDeal(30)}
               className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-xs font-medium hover:bg-zinc-800"
             >
-              propose deal for {money(30)}
+              Propose deal for {money(30)}
             </button>
           </div>
 
@@ -1412,12 +1506,12 @@ function ChatPage({ onProposeDeal }: { onProposeDeal: (amount: number) => void }
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder="type a message"
+                placeholder="Type a message"
                 className="flex-1 rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
                 onKeyDown={(e) => (e.key === "Enter" ? send() : null)}
               />
               <button onClick={send} className="px-4 py-2 rounded-2xl bg-zinc-900 text-white text-sm hover:bg-zinc-800">
-                send
+                Send
               </button>
             </div>
           </div>
@@ -1444,7 +1538,7 @@ function ProfilePage({
     return (
       <div className="mx-auto max-w-3xl px-4 py-10">
         <div className="rounded-3xl border border-zinc-200 bg-white p-8 text-center">
-          <div className="text-2xl font-semibold">profile</div>
+          <div className="text-2xl font-semibold">Profile</div>
           <div className="mt-2 text-sm text-zinc-600">
             Log in to view your payment method, bookings, ratings, and wallet.
           </div>
@@ -1470,7 +1564,7 @@ function ProfilePage({
               <div className="text-sm text-zinc-600">{user.email}</div>
             </div>
             <div className="flex gap-2">
-              <button className="px-3 py-2 rounded-xl bg-zinc-100 text-sm">edit</button>
+              <button className="px-3 py-2 rounded-xl bg-zinc-100 text-sm">Edit</button>
               <button onClick={onGoBookings} className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-sm">
                 Bookings
               </button>
@@ -1479,7 +1573,7 @@ function ProfilePage({
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             <div className="rounded-3xl border border-zinc-200 p-4">
-              <div className="text-sm font-semibold">stats</div>
+              <div className="text-sm font-semibold">Stats</div>
               <div className="mt-3 grid gap-2 text-sm text-zinc-700">
                 <div className="flex items-center justify-between">
                   <span className="text-zinc-600">Parks completed</span>
@@ -1497,12 +1591,12 @@ function ProfilePage({
             </div>
 
             <div className="rounded-3xl border border-zinc-200 p-4">
-              <div className="text-sm font-semibold">payment</div>
+              <div className="text-sm font-semibold">Payment</div>
               <div className="mt-3 rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
                 <div className="flex items-center justify-between">
                   <div className="text-sm text-zinc-700 flex items-center gap-2">
                     <CreditCard className="h-4 w-4" />
-                    <span>{hasPaymentMethod ? "card ending •••• 1234" : "no payment method"}</span>
+                    <span>{hasPaymentMethod ? "Card ending •••• 1234" : "No payment method"}</span>
                   </div>
                   <button
                     onClick={() => setHasPaymentMethod(true)}
@@ -1511,7 +1605,7 @@ function ProfilePage({
                       hasPaymentMethod ? "bg-zinc-100 text-zinc-700" : "bg-zinc-900 text-white"
                     )}
                   >
-                    {hasPaymentMethod ? "update" : "add"}
+                    {hasPaymentMethod ? "Update" : "Add"}
                   </button>
                 </div>
                 <div className="mt-2 text-xs text-zinc-500">Required to confirm bookings</div>
@@ -1595,14 +1689,14 @@ function BookingCard({
           className="px-3 py-2 rounded-xl bg-zinc-100 text-zinc-800 text-xs font-medium hover:bg-zinc-200 inline-flex items-center gap-2"
         >
           <Repeat2 className="h-4 w-4" />
-          book again
+          Book again
         </button>
         <button
           onClick={() => onChat(b)}
           className="px-3 py-2 rounded-xl bg-zinc-100 text-zinc-800 text-xs font-medium hover:bg-zinc-200 inline-flex items-center gap-2"
         >
           <MessageSquare className="h-4 w-4" />
-          chat
+          Chat
         </button>
 
         <button
@@ -1616,7 +1710,7 @@ function BookingCard({
           )}
         >
           <Star className="h-4 w-4" />
-          leave review
+          Leave review
         </button>
 
         <button
@@ -1628,12 +1722,12 @@ function BookingCard({
           )}
         >
           <X className="h-4 w-4" />
-          cancel
+          Cancel
         </button>
 
         <div className="ml-auto px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-xs text-zinc-700 inline-flex items-center gap-2">
           <ReceiptText className="h-4 w-4" />
-          receipt
+          Receipt
         </div>
       </div>
 
@@ -1686,7 +1780,7 @@ function BookingsPage({
       <div className="mt-6 grid gap-8">
         <div>
           <div className="flex items-center justify-between">
-            <div className="text-sm font-semibold">current</div>
+            <div className="text-sm font-semibold">Current</div>
             <Badge tone="Info">Cancel until 2h before</Badge>
           </div>
           <div className="mt-3 grid gap-3">
@@ -1731,13 +1825,125 @@ function BookingsPage({
   );
 }
 
+function MyListingsPage({
+  listings,
+  user,
+  onRefresh,
+  onToast,
+}: {
+  listings: Spot[];
+  user: User | null;
+  onRefresh: () => Promise<void> | void;
+  onToast: (message: string) => void;
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const deactivateListing = async (spotId: string) => {
+    if (!user) return;
+
+    setBusyId(spotId);
+    const supabase = createClient();
+
+    const { error } = await supabase
+      .from("spots")
+      .update({ is_active: false })
+      .eq("id", spotId)
+      .eq("owner_id", user.id);
+
+    setBusyId(null);
+
+    if (error) {
+      console.error("Deactivate error:", error);
+      onToast("Failed to deactivate listing");
+      return;
+    }
+
+    await onRefresh();
+    onToast("Listing deactivated");
+  };
+
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-6">
+      <div>
+        <div className="text-xl font-semibold">My listings</div>
+        <div className="text-sm text-zinc-600">
+          Manage your active and inactive parking listings
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-2">
+        {listings.length === 0 ? (
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">
+            You do not have any listings yet.
+          </div>
+        ) : (
+          listings.map((spot) => (
+            <div
+              key={spot.id}
+              className="rounded-3xl overflow-hidden border border-zinc-200 bg-white"
+            >
+              <div className="h-44 w-full overflow-hidden">
+                <img
+                  src={spot.photo || "/placeholder.png"}
+                  alt={spot.title}
+                  className="h-full w-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.src = "/placeholder.png";
+                  }}
+                />
+              </div>
+
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold truncate">{spot.title}</div>
+                    <div className="mt-1 text-xs text-zinc-600">
+                      {spot.area} • {money(spot.priceHour)}/hr • {money(spot.priceDay)}/day
+                    </div>
+                  </div>
+                  <DifficultyPill level={spot.difficulty} />
+                </div>
+
+                <div className="mt-3 flex items-center gap-2">
+                  <Badge tone={spot.is_active === false ? "Neutral" : "Good"}>
+                    {spot.is_active === false ? "Inactive" : "Active"}
+                  </Badge>
+                </div>
+
+                <div className="mt-4 flex gap-2">
+                  <button
+                    disabled
+                    className="rounded-xl bg-zinc-100 px-3 py-2 text-xs font-medium text-zinc-500"
+                  >
+                    Edit coming soon
+                  </button>
+
+                  <button
+                    onClick={() => deactivateListing(spot.id)}
+                    disabled={busyId === spot.id || spot.is_active === false}
+                    className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                  >
+                    {busyId === spot.id
+                      ? "Deactivating..."
+                      : spot.is_active === false
+                      ? "Inactive"
+                      : "Deactivate"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function LoginPage({
   onSuccess,
 }: {
   onSuccess: () => void;
 }) {
-  const supabase = createClient();
-
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1748,6 +1954,8 @@ function LoginPage({
     e.preventDefault();
     setLoading(true);
     setMessage("");
+
+    const supabase = createClient();
 
     try {
       if (mode === "login") {
@@ -1773,7 +1981,7 @@ function LoginPage({
           return;
         }
 
-        setMessage("account created. you can now log in.");
+        setMessage("Account created. You can now log in.");
         setMode("login");
       }
     } finally {
@@ -1785,10 +1993,10 @@ function LoginPage({
     <div className="mx-auto max-w-md px-4 py-10">
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
         <div className="text-2xl font-semibold">
-          {mode === "login" ? "log in" : "create account"}
+          {mode === "login" ? "Log in" : "Create account"}
         </div>
         <div className="mt-2 text-sm text-zinc-600">
-          you need an account to publish a parking spot
+          You need an account to book parking, manage listings, and use GigPark.
         </div>
 
         <form onSubmit={handleSubmit} className="mt-6 grid gap-4">
@@ -1820,10 +2028,10 @@ function LoginPage({
             className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:bg-zinc-300"
           >
             {loading
-              ? "please wait..."
+              ? "Please wait..."
               : mode === "login"
-              ? "log in"
-              : "create account"}
+              ? "Log in"
+              : "Create account"}
           </button>
         </form>
 
@@ -1842,8 +2050,8 @@ function LoginPage({
           className="mt-4 text-sm text-zinc-600 underline"
         >
           {mode === "login"
-            ? "need an account? sign up"
-            : "already have an account? log in"}
+            ? "Need an account? Sign up"
+            : "Already have an account? Log in"}
         </button>
       </div>
     </div>
@@ -1861,6 +2069,7 @@ export default function App() {
   const [checkoutPayload, setCheckoutPayload] = useState<CheckoutPayload | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [myListings, setMyListings] = useState<Spot[]>([]);
 
   const requireLoginFor = (targetView: View) => {
     setPostLoginView(targetView);
@@ -1871,74 +2080,131 @@ export default function App() {
     const supabase = createClient();
     await supabase.auth.signOut();
     setUser(null);
+    setMyListings([]);
+    setBookings([]);
+    setHasPaymentMethod(false);
+    setSelected(null);
+    setCheckoutOpen(false);
+    setCheckoutPayload(null);
     setView("home");
     setToast("Logged out");
     setTimeout(() => setToast(null), 2200);
   };
 
+  type SpotRow = {
+    id: string;
+    owner_id?: string;
+    is_active?: boolean;
+    title: string;
+    area: string;
+    price_hour: number | string;
+    price_day: number | string;
+    address_hint?: string | null;
+    photo_url?: string | null;
+    difficulty?: Spot["difficulty"] | null;
+    description?: string | null;
+    availability?: Availability | null;
+    features?: string[] | null;
+    lat?: number | string | null;
+    lng?: number | string | null;
+  };
+
+  const mapSpotRow = (s: SpotRow): Spot => ({
+    ...s,
+    owner_id: s.owner_id,
+    is_active: s.is_active,
+    priceHour: Number(s.price_hour),
+    priceDay: Number(s.price_day),
+    addressHint: s.address_hint ?? "",
+    difficulty: s.difficulty ?? "Easy",
+    description: s.description ?? "",
+    availability: s.availability ?? {
+      mon: ["09:00", "17:00"],
+      tue: ["09:00", "17:00"],
+      wed: ["09:00", "17:00"],
+      thu: ["09:00", "17:00"],
+      fri: ["09:00", "17:00"],
+      sat: ["10:00", "16:00"],
+      sun: null,
+    },
+    host: { name: "Host", rating: 4.8, reviews: 0 },
+    features: s.features ?? [],
+    photo: s.photo_url ?? null,
+    lat: Number(s.lat ?? 45.5),
+    lng: Number(s.lng ?? -73.6),
+  });
+
   const loadSpots = async () => {
     const supabase = createClient();
 
-    const { data, error } = await supabase.from("spots").select("*");
+    const { data, error } = await supabase
+      .from("spots")
+      .select("*")
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
 
     if (error) {
       console.error("Supabase error:", error);
       setToast("Failed to load spots");
+      setTimeout(() => setToast(null), 2200);
       return;
     }
 
-    console.log("DATA FROM SUPABASE:", data);
+    setSpots((data || []).map(mapSpotRow));
+  };
 
-    setSpots(
-      (data || []).map((s) => ({
-        ...s,
-        priceHour: Number(s.price_hour),
-        priceDay: Number(s.price_day),
-        addressHint: s.address_hint ?? "",
-        difficulty: s.difficulty ?? "Easy",
-        description: s.description ?? "",
-        availability: s.availability ?? {
-          mon: ["09:00", "17:00"],
-          tue: ["09:00", "17:00"],
-          wed: ["09:00", "17:00"],
-          thu: ["09:00", "17:00"],
-          fri: ["09:00", "17:00"],
-          sat: ["10:00", "16:00"],
-          sun: null,
-        },
-        host: { name: "Host", rating: 4.8, reviews: 0 },
-        features: s.features ?? [],
-        photo: s.photo_url ?? null,
-        lat: Number(s.lat ?? 45.5),
-        lng: Number(s.lng ?? -73.6),
-      }))
-    );
+  const loadMyListings = async (currentUser?: User | null) => {
+    const activeUser = currentUser ?? user;
+    if (!activeUser) {
+      setMyListings([]);
+      return;
+    }
+
+    const supabase = createClient();
+
+    const { data, error } = await supabase
+      .from("spots")
+      .select("*")
+      .eq("owner_id", activeUser.id)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Failed to load my listings:", error);
+      setToast("Failed to load your listings");
+      setTimeout(() => setToast(null), 2200);
+      return;
+    }
+
+    setMyListings((data || []).map(mapSpotRow));
   };
 
   useEffect(() => {
-    const supabase = createClient();
+  const supabase = createClient();
 
-    const loadUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      setUser(user ?? null);
-    };
-
-    loadUser();
-    loadSpots();
-
+  const loadUser = async () => {
     const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
+      data: { user },
+    } = await supabase.auth.getUser();
 
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
+    setUser(user ?? null);
+    await loadMyListings(user ?? null);
+  };
+
+  loadUser();
+  loadSpots();
+
+  const {
+    data: { subscription },
+  } = supabase.auth.onAuthStateChange((_event, session) => {
+    const nextUser = session?.user ?? null;
+    setUser(nextUser);
+    loadMyListings(nextUser);
+  });
+
+  return () => {
+    subscription.unsubscribe();
+  };
+}, []);
 
   const openSpot = (spot: Spot) => {
     setSelected(spot);
@@ -1967,6 +2233,7 @@ export default function App() {
 
     setBookings((prev) => [newBooking, ...prev]);
     setCheckoutOpen(false);
+    setCheckoutPayload(null);
     setView("bookings");
     setToast(`Booking confirmed: ${money(p.total)}`);
     setTimeout(() => setToast(null), 2800);
@@ -1998,11 +2265,15 @@ export default function App() {
     setTimeout(() => setToast(null), 2200);
   };
 
-  const goChat = () => {
+  const goChat = (_b?: Booking) => {
+    if (!user) {
+      requireLoginFor("chat");
+      return;
+    }
     setView("chat");
   };
 
-  const leaveReview = () => {
+  const leaveReview = (_b?: Booking) => {
     setToast("Review submitted (demo)");
     setTimeout(() => setToast(null), 2200);
   };
@@ -2050,7 +2321,9 @@ export default function App() {
                 <div className="flex items-center gap-2 font-semibold">
                   <Wallet className="h-4 w-4" /> Pay
                 </div>
-                <div className="mt-2 text-sm text-zinc-600">Secure payment flow; address stays masked until booking.</div>
+                <div className="mt-2 text-sm text-zinc-600">
+                  Secure payment flow. The address stays masked until booking.
+                </div>
               </div>
             </div>
 
@@ -2074,16 +2347,34 @@ export default function App() {
           onBack={() => setView("search")}
           onCheckout={startCheckout}
           onRequireLogin={() => {
-            setToast("Please log in to continue");
+            setToast("Please log in to continue.");
             setTimeout(() => setToast(null), 2200);
             requireLoginFor("detail");
           }}
         />
       )}
 
+      {view === "my-listings" && (
+        <MyListingsPage
+          listings={myListings}
+          user={user}
+          onRefresh={async () => {
+            await loadSpots();
+            await loadMyListings(user);
+          }}
+          onToast={(message) => {
+            setToast(message);
+            setTimeout(() => setToast(null), 2200);
+          }}
+        />
+      )}
+
       {view === "host" && (
         <HostPage
-          onCreated={loadSpots}
+          onCreated={async () => {
+            await loadSpots();
+            await loadMyListings(user);
+          }}
           user={user}
           onRequireLogin={() => requireLoginFor("host")}
         />
@@ -2114,6 +2405,11 @@ export default function App() {
       {view === "login" && (
         <LoginPage
           onSuccess={() => {
+            setCheckoutOpen(false);
+            setCheckoutPayload(null);
+            if (postLoginView !== "detail") {
+              setSelected(null);
+            }
             setView(postLoginView);
             setToast("Logged in");
             setTimeout(() => setToast(null), 2200);
