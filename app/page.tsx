@@ -1854,7 +1854,7 @@ function MyListingsPage({
 
     if (error) {
       console.error("Deactivate error:", error);
-      onToast("Failed to deactivate listing");
+      onToast(error.message || "Failed to deactivate listing.");
       return;
     }
 
