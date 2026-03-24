@@ -1060,133 +1060,174 @@ function HostPage({
 
   const publishListing = async () => {
     if (saving) return;
+
+    setSaving(true);
     setErrorMsg("");
     setSubmitted(false);
 
-    if (!user) {
-      onRequireLogin();
-      return;
-    }
-
-    const cleanTitle = title.trim();
-    const cleanAddressHint = addressHint.trim();
-    const hour = Number(priceHour);
-    const day = Number(priceDay);
-
-    if (photoFile && !photoFile.type.startsWith("image/")) {
-      setErrorMsg("Please upload an image file.");
-      return;
-    }
-
-    if (photoFile && photoFile.size > 5 * 1024 * 1024) {
-      setErrorMsg("Image must be 5MB or smaller.");
-      return;
-    }
-
-    if (!cleanTitle) {
-      setErrorMsg("Please enter a title.");
-      return;
-    }
-
-    if (!area.trim()) {
-      setErrorMsg("Please select an area.");
-      return;
-    }
-
-    if (!cleanAddressHint) {
-      setErrorMsg("Please enter an address hint.");
-      return;
-    }
-
-    if (!Number.isFinite(hour) || hour <= 0) {
-      setErrorMsg("Price per hour must be greater than 0.");
-      return;
-    }
-
-    if (!Number.isFinite(day) || day <= 0) {
-      setErrorMsg("Price per day must be greater than 0.");
-      return;
-    }
-
-    if (hour > 100) {
-      setErrorMsg("Price per hour is too high. Please enter 100 CAD or less.");
-      return;
-    }
-
-    if (day > 500) {
-      setErrorMsg("Price per day is too high. Please enter 500 CAD or less.");
-      return;
-    }
-
-    if (day < hour) {
-      setErrorMsg("Price per day cannot be lower than price per hour.");
-      return;
-    }
-
-    setSaving(true);
-
-    const supabase = createClient();
-
-    let photoUrl = null;
-
-    if (photoFile) {
-      const fileExt = photoFile.name.split(".").pop();
-      const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("spot-photos")
-        .upload(fileName, photoFile);
-
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
-        setErrorMsg("Failed to upload image.");
+    try {
+      if (!user) {
+        onRequireLogin();
         setSaving(false);
         return;
       }
 
-      const { data: publicUrlData } = supabase.storage
-        .from("spot-photos")
-        .getPublicUrl(fileName);
+      const cleanTitle = title.trim();
+      const cleanAddressHint = addressHint.trim();
+      const hour = Number(priceHour);
+      const day = Number(priceDay);
 
-      photoUrl = publicUrlData.publicUrl;
+      if (photoFile && !photoFile.type.startsWith("image/")) {
+        setErrorMsg("Please upload an image file.");
+        setSaving(false);
+        return;
+      }
+
+      if (photoFile && photoFile.size > 5 * 1024 * 1024) {
+        setErrorMsg("Image must be 5MB or smaller.");
+        setSaving(false);
+        return;
+      }
+
+      if (!cleanTitle) {
+        setErrorMsg("Please enter a title.");
+        setSaving(false);
+        return;
+      }
+
+      if (!area.trim()) {
+        setErrorMsg("Please select an area.");
+        setSaving(false);
+        return;
+      }
+
+      if (!cleanAddressHint) {
+        setErrorMsg("Please enter an address hint.");
+        setSaving(false);
+        return;
+      }
+
+      if (!Number.isFinite(hour) || hour <= 0) {
+        setErrorMsg("Price per hour must be greater than 0.");
+        setSaving(false);
+        return;
+      }
+
+      if (!Number.isFinite(day) || day <= 0) {
+        setErrorMsg("Price per day must be greater than 0.");
+        setSaving(false);
+        return;
+      }
+
+      if (hour > 100) {
+        setErrorMsg("Price per hour is too high. Please enter 100 CAD or less.");
+        setSaving(false);
+        return;
+      }
+
+      if (day > 500) {
+        setErrorMsg("Price per day is too high. Please enter 500 CAD or less.");
+        setSaving(false);
+        return;
+      }
+
+      if (day < hour) {
+        setErrorMsg("Price per day cannot be lower than price per hour.");
+        setSaving(false);
+        return;
+      }
+
+      const supabase = createClient();
+
+      const {
+        data: { user: currentUser },
+        error: getUserError,
+      } = await supabase.auth.getUser();
+
+      console.log("publishListing user prop:", user);
+      console.log("publishListing currentUser from auth.getUser():", currentUser);
+      console.log("publishListing getUserError:", getUserError);
+
+      if (getUserError || !currentUser) {
+        setErrorMsg("Your session was not found. Please log in again.");
+        setSaving(false);
+        return;
+      }
+
+      let photoUrl: string | null = null;
+
+      if (photoFile) {
+        const fileExt = photoFile.name.split(".").pop();
+        const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("spot-photos")
+          .upload(fileName, photoFile);
+
+        if (uploadError) {
+          console.error("Upload error:", uploadError);
+          setErrorMsg("Failed to upload image.");
+          setSaving(false);
+          return;
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from("spot-photos")
+          .getPublicUrl(fileName);
+
+        photoUrl = publicUrlData.publicUrl;
+      }
+
+      const payload = {
+        owner_id: currentUser.id,
+        is_active: true,
+        title: cleanTitle,
+        area,
+        price_hour: hour,
+        price_day: day,
+        address_hint: cleanAddressHint,
+        photo_url: photoUrl,
+        difficulty,
+        description: "",
+      };
+
+      console.log("spots insert payload:", payload);
+
+      const { data: insertedRow, error } = await supabase
+        .from("spots")
+        .insert(payload)
+        .select();
+
+      console.log("spots insert result:", { insertedRow, error });
+
+      if (error) {
+        console.error("Insert error:", error);
+        setErrorMsg(error.message || "Failed to create listing.");
+        setSaving(false);
+        return;
+      }
+
+      setSubmitted(true);
+      setTitle("");
+      setArea("Côte-des-Neiges");
+      setPriceHour(4);
+      setPriceDay(20);
+      setAddressHint("");
+      setPhotoFile(null);
+      setPhotoPreview(null);
+      setDifficulty("Easy");
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
+      await onCreated();
+      setSaving(false);
+    } catch (err) {
+      console.error("Publish listing unexpected error:", err);
+      setErrorMsg("Something went wrong while creating the listing.");
+      setSaving(false);
     }
-
-    const { error } = await supabase.from("spots").insert({
-      owner_id: user.id,
-      is_active: true,
-      title: cleanTitle,
-      area,
-      price_hour: hour,
-      price_day: day,
-      address_hint: cleanAddressHint,
-      photo_url: photoUrl,
-      difficulty,
-      description: "",
-    });
-
-    setSaving(false);
-
-    if (error) {
-      console.error("Insert error:", error);
-      setErrorMsg(error.message || "Failed to create listing.");
-      return;
-    }
-
-    setSubmitted(true);
-    setTitle("");
-    setArea("Côte-des-Neiges");
-    setPriceHour(4);
-    setPriceDay(20);
-    setAddressHint("");
-    setPhotoFile(null);
-    setPhotoPreview(null);
-    setDifficulty("Easy");
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-
-    await onCreated();
   };
 
   return (
