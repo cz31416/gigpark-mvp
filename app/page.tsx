@@ -1039,6 +1039,7 @@ function HostPage({
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [debugInfo, setDebugInfo] = useState("");
   const [title, setTitle] = useState("");
   const [area, setArea] = useState("Côte-des-Neiges");
   const [priceHour, setPriceHour] = useState(4);
@@ -1144,6 +1145,19 @@ function HostPage({
         error: getUserError,
       } = await supabase.auth.getUser();
 
+      setDebugInfo(
+        JSON.stringify(
+          {
+            envUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+            userPropId: user?.id ?? null,
+            currentUserId: currentUser?.id ?? null,
+            getUserError: getUserError?.message ?? null,
+          },
+          null,
+          2
+        )
+      );
+
       console.log("publishListing user prop:", user);
       console.log("publishListing currentUser from auth.getUser():", currentUser);
       console.log("publishListing getUserError:", getUserError);
@@ -1199,6 +1213,22 @@ function HostPage({
         .select();
 
       console.log("spots insert result:", { insertedRow, error });
+
+      setDebugInfo(
+        JSON.stringify(
+          {
+            envUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+            userPropId: user?.id ?? null,
+            currentUserId: currentUser?.id ?? null,
+            payload,
+            insertError: error?.message ?? null,
+            insertCode: error?.code ?? null,
+            insertedRow,
+          },
+          null,
+          2
+        )
+      );
 
       if (error) {
         console.error("Insert error:", error);
@@ -1444,6 +1474,12 @@ function HostPage({
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
                 Listing created successfully.
               </div>
+            )}
+
+            {debugInfo && (
+              <pre className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700 overflow-x-auto whitespace-pre-wrap">
+                {debugInfo}
+              </pre>
             )}
 
           </div>
