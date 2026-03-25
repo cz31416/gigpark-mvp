@@ -84,7 +84,8 @@ type Booking = {
 
 type CheckoutPayload = {
   spot: Spot;
-  day: DayKey;
+  bookingDate: string;
+  bookingStartTime: string;
   durationHours: number;
   subtotal: number;
   tax: number;
@@ -136,6 +137,44 @@ function countdownLabel(startAt: Date) {
 }
 
 const TAX = { gst: 0.05, qst: 0.09975 };
+
+function generateTimeSlots(start = "06:00", end = "23:00", stepMinutes = 30) {
+  const slots: string[] = [];
+
+  const [startHour, startMinute] = start.split(":").map(Number);
+  const [endHour, endMinute] = end.split(":").map(Number);
+
+  const current = new Date();
+  current.setHours(startHour, startMinute, 0, 0);
+
+  const limit = new Date();
+  limit.setHours(endHour, endMinute, 0, 0);
+
+  while (current <= limit) {
+    const hh = String(current.getHours()).padStart(2, "0");
+    const mm = String(current.getMinutes()).padStart(2, "0");
+    slots.push(`${hh}:${mm}`);
+    current.setMinutes(current.getMinutes() + stepMinutes);
+  }
+
+  return slots;
+}
+
+function combineDateAndTime(date: string, time: string) {
+  return new Date(`${date}T${time}:00`);
+}
+
+function hasTimeConflict(
+  candidateStart: Date,
+  candidateEnd: Date,
+  existing: { start_at: string; end_at: string }[]
+) {
+  return existing.some((b) => {
+    const existingStart = new Date(b.start_at);
+    const existingEnd = new Date(b.end_at);
+    return candidateStart < existingEnd && candidateEnd > existingStart;
+  });
+}
 
 const MOCK_MESSAGES = [
   { from: "Alex", side: "them", text: "Hi! What time are you arriving?" },
@@ -668,10 +707,17 @@ function SpotDetail({
   onCheckout: (payload: CheckoutPayload) => void;
   onRequireLogin: () => void;
 }) {
-  const [day, setDay] = useState<DayKey>("mon");
+  const [bookingDate, setBookingDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [bookingStartTime, setBookingStartTime] = useState("09:00");
   const [duration, setDuration] = useState("2h");
+  const [spotBookings, setSpotBookings] = useState<
+    { id: string; start_at: string; end_at: string; status: string }[]
+  >([]);
+  const [loadingAvailability, setLoadingAvailability] = useState(false);
 
-  const av = spot.availability?.[day];
+  const av = spot.availability?.mon;
   const durationHours =
     duration === "1h" ? 1 :
     duration === "2h" ? 2 :
@@ -682,20 +728,72 @@ function SpotDetail({
   const tax = subtotal * (TAX.gst + TAX.qst);
   const total = subtotal + tax;
 
+  const timeSlots = useMemo(() => {
+    const start = av?.[0] || "09:00";
+    const end = av?.[1] || "17:00";
+    return generateTimeSlots(start, end, 30);
+  }, [av]);
+
+  useEffect(() => {
+    const loadSpotBookings = async () => {
+      setLoadingAvailability(true);
+      const supabase = createClient();
+
+      const startOfDay = new Date(`${bookingDate}T00:00:00`);
+      const endOfDay = new Date(`${bookingDate}T23:59:59`);
+
+      const { data, error } = await supabase
+        .from("bookings")
+        .select("id, start_at, end_at, status")
+        .eq("spot_id", spot.id)
+        .neq("status", "Cancelled")
+        .lt("start_at", endOfDay.toISOString())
+        .gt("end_at", startOfDay.toISOString())
+        .order("start_at", { ascending: true });
+
+      if (error) {
+        console.error("Failed to load spot bookings:", error);
+        setSpotBookings([]);
+      } else {
+        setSpotBookings(data || []);
+      }
+
+      setLoadingAvailability(false);
+    };
+
+    loadSpotBookings();
+  }, [spot.id, bookingDate]);
+
+  const selectedStartAt = combineDateAndTime(bookingDate, bookingStartTime);
+  const selectedEndAt = new Date(
+    selectedStartAt.getTime() + durationHours * 60 * 60 * 1000
+  );
+
+  const selectedSlotUnavailable = hasTimeConflict(
+    selectedStartAt,
+    selectedEndAt,
+    spotBookings
+  );
+
   const handleBookNow = () => {
     if (!user) {
       onRequireLogin();
       return;
     }
 
+    if (selectedSlotUnavailable) {
+      return;
+    }
+
     onCheckout({
       spot,
-      day,
+      bookingDate,
+      bookingStartTime,
       durationHours,
       subtotal,
       tax,
       total,
-      startAt: nextOccurrence(day, av?.[0] || "09:00"),
+      startAt: selectedStartAt,
     });
   };
 
@@ -766,50 +864,64 @@ function SpotDetail({
 
           <div className="mt-4 grid gap-3">
             <div>
-              <div className="text-xs text-zinc-500 mb-1">Choose day</div>
-              <div className="flex flex-wrap gap-2">
-                {days.map((d) => (
-                  <button
-                    key={d.charAt(0).toUpperCase() + d.slice(1)}
-                    onClick={() => setDay(d)}
-                    className={cx(
-                      "px-3 py-2 rounded-xl text-sm",
-                      day === d ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700"
-                    )}
-                  >
-                    {d.charAt(0).toUpperCase() + d.slice(1)}
-                  </button>
-                ))}
-              </div>
+              <div className="text-xs text-zinc-500 mb-1">Choose date</div>
+              <input
+                type="date"
+                value={bookingDate}
+                min={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setBookingDate(e.target.value)}
+                className="w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+              />
             </div>
 
             <div>
-              <div className="text-xs text-zinc-500 mb-1">Availability</div>
-              <div className="flex items-center gap-2 text-sm text-zinc-700">
-                <Clock className="h-4 w-4" />
-                <span>{av ? `${av[0]}–${av[1]}` : "Not available"}</span>
+              <div className="text-xs text-zinc-500 mb-1">Choose start time</div>
+              <div className="grid grid-cols-3 gap-2">
+                {timeSlots.map((time) => {
+                  const candidateStart = combineDateAndTime(bookingDate, time);
+                  const candidateEnd = new Date(
+                    candidateStart.getTime() + durationHours * 60 * 60 * 1000
+                  );
+                  const unavailable = hasTimeConflict(
+                    candidateStart,
+                    candidateEnd,
+                    spotBookings
+                  );
+
+                  return (
+                    <button
+                      key={time}
+                      disabled={unavailable}
+                      onClick={() => setBookingStartTime(time)}
+                      className={cx(
+                        "px-3 py-2 rounded-xl text-sm",
+                        bookingStartTime === time && !unavailable
+                          ? "bg-zinc-900 text-white"
+                          : unavailable
+                          ? "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                          : "bg-zinc-100 text-zinc-700"
+                      )}
+                    >
+                      {time}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
             <div>
               <div className="text-xs text-zinc-500 mb-1">Duration</div>
               <div className="grid grid-cols-5 gap-2">
-                {[
-                  { k: "1h" },
-                  { k: "2h" },
-                  { k: "4h" },
-                  { k: "8h" },
-                  { k: "24h" },
-                ].map((x) => (
+                {["1h", "2h", "4h", "8h", "24h"].map((x) => (
                   <button
-                    key={x.k}
-                    onClick={() => setDuration(x.k)}
+                    key={x}
+                    onClick={() => setDuration(x)}
                     className={cx(
                       "px-3 py-2 rounded-xl text-sm",
-                      duration === x.k ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700"
+                      duration === x ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700"
                     )}
                   >
-                    {x.k}
+                    {x}
                   </button>
                 ))}
               </div>
@@ -829,19 +941,25 @@ function SpotDetail({
                 <span className="font-semibold">{money(total)}</span>
               </div>
               <div className="mt-2 text-xs text-zinc-500">
-                Final details are confirmed in chat. Payment is required to confirm the booking.
+                {loadingAvailability
+                  ? "Checking availability..."
+                  : selectedSlotUnavailable
+                  ? "That time is already booked."
+                  : `Starts: ${fmtDateTime(selectedStartAt)}`}
               </div>
             </div>
 
             <button
-              disabled={!av}
+              disabled={loadingAvailability || selectedSlotUnavailable}
               onClick={handleBookNow}
               className={cx(
                 "w-full px-4 py-3 rounded-2xl text-sm font-medium",
-                av ? "bg-zinc-900 text-white hover:bg-zinc-800" : "bg-zinc-200 text-zinc-500 cursor-not-allowed"
+                !loadingAvailability && !selectedSlotUnavailable
+                  ? "bg-zinc-900 text-white hover:bg-zinc-800"
+                  : "bg-zinc-200 text-zinc-500 cursor-not-allowed"
               )}
             >
-              {user ? "Book and pay" : "Log in to book"}
+              {user ? "Continue to confirm" : "Log in to book"}
             </button>
           </div>
 
@@ -859,17 +977,15 @@ function CheckoutModal({
   open,
   onClose,
   payload,
-  hasPaymentMethod,
   onConfirm,
 }: {
   open: boolean;
   onClose: () => void;
   payload: CheckoutPayload | null;
-  hasPaymentMethod: boolean;
   onConfirm: () => void;
 }) {
   if (!open || !payload) return null;
-  const { spot, day, durationHours, subtotal, tax, total, startAt } = payload;
+  const { spot, bookingDate, bookingStartTime, durationHours, subtotal, tax, total, startAt } = payload;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 grid place-items-center p-4">
@@ -878,8 +994,8 @@ function CheckoutModal({
           <div className="flex items-center gap-2">
             <Wallet className="h-5 w-5" />
             <div>
-              <div className="text-sm font-semibold">Checkout</div>
-              <div className="text-xs text-zinc-500">Pay to confirm booking</div>
+              <div className="text-sm font-semibold">Confirm booking</div>
+              <div className="text-xs text-zinc-500">Test mode — payment step bypassed</div>
             </div>
           </div>
           <button onClick={onClose} className="text-sm text-zinc-600 hover:text-zinc-900">
@@ -895,22 +1011,13 @@ function CheckoutModal({
                 <MapPin className="h-4 w-4" /> {spot.area}
               </span>
               <span className="text-zinc-300">•</span>
-              <span>{day.charAt(0).toUpperCase() + day.slice(1)}</span>
+              <span>{bookingDate}</span>
+              <span className="text-zinc-300">•</span>
+              <span>{bookingStartTime}</span>
               <span className="text-zinc-300">•</span>
               <span>{durationHours} hours</span>
             </div>
             <div className="mt-2 text-xs text-zinc-500">Starts: {fmtDateTime(startAt)}</div>
-          </div>
-
-          <div className="grid gap-2">
-            <div className="text-xs text-zinc-500">Payment method</div>
-            <div className="rounded-2xl border border-zinc-200 p-4 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm">
-                <CreditCard className="h-4 w-4" />
-                <span>{hasPaymentMethod ? "Card ending •••• 1234" : "No payment method"}</span>
-              </div>
-              <button className="text-sm text-zinc-700 hover:text-zinc-900">Change</button>
-            </div>
           </div>
 
           <div className="rounded-2xl border border-zinc-200 p-4">
@@ -926,25 +1033,21 @@ function CheckoutModal({
               <span className="text-zinc-600">Total</span>
               <span className="font-semibold">{money(total)}</span>
             </div>
-            <div className="mt-2 text-xs text-zinc-500">Funds are held until the booking window starts.</div>
+            <div className="mt-2 text-xs text-zinc-500">
+              This booking will be saved in test mode without requiring a card.
+            </div>
           </div>
 
           <button
             onClick={onConfirm}
-            disabled={!hasPaymentMethod}
-            className={cx(
-              "w-full px-4 py-3 rounded-2xl text-sm font-medium",
-              hasPaymentMethod ? "bg-zinc-900 text-white hover:bg-zinc-800" : "bg-zinc-200 text-zinc-500 cursor-not-allowed"
-            )}
+            className="w-full px-4 py-3 rounded-2xl text-sm font-medium bg-zinc-900 text-white hover:bg-zinc-800"
           >
-            Confirm payment
+            Confirm booking
           </button>
 
-          {!hasPaymentMethod && (
-            <div className="text-xs text-rose-600">Add a payment method in profile to complete checkout.</div>
-          )}
-
-          <div className="text-xs text-zinc-600">By paying, you agree that this is a private, owner-authorized parking space.</div>
+          <div className="text-xs text-zinc-600">
+            By confirming, you agree that this is a private, owner-authorized parking space.
+          </div>
         </div>
       </div>
     </div>
@@ -2718,17 +2821,24 @@ export default function App() {
   const proposeDeal = (amount: number) => {
     const spot = spots[0];
     if (!spot) return;
+
+    const bookingDate = new Date().toISOString().slice(0, 10);
+    const bookingStartTime = spot.availability?.mon?.[0] || "09:00";
+    const startAt = combineDateAndTime(bookingDate, bookingStartTime);
+
     const subtotal = amount;
     const tax = subtotal * (TAX.gst + TAX.qst);
     const total = subtotal + tax;
+
     setCheckoutPayload({
       spot,
-      day: "mon",
+      bookingDate,
+      bookingStartTime,
       durationHours: 1,
       subtotal,
       tax,
       total,
-      startAt: nextOccurrence("mon", spot.availability?.mon?.[0] || "09:00"),
+      startAt,
     });
     setCheckoutOpen(true);
   };
@@ -2913,7 +3023,6 @@ export default function App() {
       <CheckoutModal
         open={checkoutOpen}
         payload={checkoutPayload}
-        hasPaymentMethod={hasPaymentMethod}
         onClose={() => {
           setCheckoutOpen(false);
           setCheckoutPayload(null);
