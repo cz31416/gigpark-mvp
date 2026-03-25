@@ -2468,6 +2468,20 @@ export default function App() {
     lng?: number | string | null;
   };
 
+  type BookingRow = {
+    id: string;
+    renter_id: string;
+    spot_id: string;
+    start_at: string;
+    end_at: string;
+    subtotal: number | string;
+    tax: number | string;
+    total: number | string;
+    status: "Confirmed" | "Cancelled" | string;
+    created_at?: string;
+    spots?: SpotRow | SpotRow[] | null;
+  };
+
   const mapSpotRow = (s: SpotRow): Spot => ({
     ...s,
     owner_id: s.owner_id,
@@ -2537,6 +2551,69 @@ export default function App() {
     setMyListings((data || []).map(mapSpotRow));
   };
 
+  const loadBookings = async (currentUser?: User | null) => {
+    const activeUser = currentUser ?? user;
+
+    if (!activeUser) {
+      setBookings([]);
+      return;
+    }
+
+    const supabase = createClient();
+
+    const { data, error } = await supabase
+      .from("bookings")
+      .select(`
+        id,
+        renter_id,
+        spot_id,
+        start_at,
+        end_at,
+        subtotal,
+        tax,
+        total,
+        status,
+        created_at,
+        spots (*)
+      `)
+      .eq("renter_id", activeUser.id)
+      .order("start_at", { ascending: false });
+
+    if (error) {
+      console.error("Failed to load bookings:", error);
+      setToast("Failed to load bookings");
+      setTimeout(() => setToast(null), 2200);
+      return;
+    }
+
+    const mapped: Booking[] = (data || [])
+      .map((row) => {
+        const relatedSpot = Array.isArray(row.spots) ? row.spots[0] : row.spots;
+
+        if (!relatedSpot) return null;
+
+        return {
+          id: row.id,
+          spot: mapSpotRow(relatedSpot as SpotRow),
+          startAt: row.start_at,
+          durationHours: Math.max(
+            1,
+            Math.round(
+              (new Date(row.end_at).getTime() - new Date(row.start_at).getTime()) /
+                (1000 * 60 * 60)
+            )
+          ),
+          subtotal: Number(row.subtotal),
+          tax: Number(row.tax),
+          total: Number(row.total),
+          status: row.status === "Cancelled" ? "Cancelled" : "Confirmed",
+        };
+      })
+      .filter((row): row is Booking => row !== null);
+
+    setBookings(mapped);
+  };
+
   useEffect(() => {
   const supabase = createClient();
 
@@ -2547,6 +2624,7 @@ export default function App() {
 
     setUser(user ?? null);
     await loadMyListings(user ?? null);
+    await loadBookings(user ?? null);
   };
 
   loadUser();
@@ -2558,6 +2636,7 @@ export default function App() {
     const nextUser = session?.user ?? null;
     setUser(nextUser);
     loadMyListings(nextUser);
+    loadBookings(nextUser);
   });
 
   return () => {
@@ -2575,22 +2654,60 @@ export default function App() {
     setCheckoutOpen(true);
   };
 
-  const confirmPayment = () => {
+  const confirmPayment = async () => {
     const p = checkoutPayload;
-    if (!p) return;
+    if (!p || !user) return;
 
-    const newBooking: Booking = {
-      id: `bk-${Math.random().toString(36).slice(2, 10)}`,
-      spot: p.spot,
-      startAt: p.startAt,
-      durationHours: p.durationHours,
+    const supabase = createClient();
+
+    const endAt = new Date(
+      new Date(p.startAt).getTime() + p.durationHours * 60 * 60 * 1000
+    );
+
+    const { data: conflicts, error: conflictError } = await supabase
+      .from("bookings")
+      .select("id,start_at,end_at,status")
+      .eq("spot_id", p.spot.id)
+      .neq("status", "Cancelled")
+      .lt("start_at", endAt.toISOString())
+      .gt("end_at", new Date(p.startAt).toISOString());
+
+    if (conflictError) {
+      console.error("Conflict check error:", conflictError);
+      setToast("Could not verify availability");
+      setTimeout(() => setToast(null), 2200);
+      return;
+    }
+
+    if (conflicts && conflicts.length > 0) {
+      setCheckoutOpen(false);
+      setCheckoutPayload(null);
+      setToast("This spot is already booked for that time");
+      setTimeout(() => setToast(null), 2200);
+      return;
+    }
+
+    const { error } = await supabase.from("bookings").insert({
+      renter_id: user.id,
+      spot_id: p.spot.id,
+      start_at: new Date(p.startAt).toISOString(),
+      end_at: endAt.toISOString(),
       subtotal: p.subtotal,
       tax: p.tax,
       total: p.total,
       status: "Confirmed",
-    };
+    });
 
-    setBookings((prev) => [newBooking, ...prev]);
+    if (error) {
+      console.error("Booking insert error:", error);
+      setToast(error.message || "Failed to confirm booking");
+      setTimeout(() => setToast(null), 2200);
+      return;
+    }
+
+    await loadBookings(user);
+    await loadSpots();
+
     setCheckoutOpen(false);
     setCheckoutPayload(null);
     setView("bookings");
@@ -2616,10 +2733,26 @@ export default function App() {
     setCheckoutOpen(true);
   };
 
-  const cancelBooking = (b: Booking) => {
-    setBookings((prev) =>
-      prev.map((x): Booking => (x.id === b.id ? { ...x, status: "Cancelled" } : x))
-    );
+  const cancelBooking = async (b: Booking) => {
+    if (!user) return;
+
+    const supabase = createClient();
+
+    const { error } = await supabase
+      .from("bookings")
+      .update({ status: "Cancelled" })
+      .eq("id", b.id)
+      .eq("renter_id", user.id);
+
+    if (error) {
+      console.error("Cancel booking error:", error);
+      setToast(error.message || "Failed to cancel booking");
+      setTimeout(() => setToast(null), 2200);
+      return;
+    }
+
+    await loadBookings(user);
+    await loadSpots();
     setToast("Booking cancelled");
     setTimeout(() => setToast(null), 2200);
   };
@@ -2764,11 +2897,12 @@ export default function App() {
       {view === "login" && (
         <LoginPage
           onSuccess={() => {
-            setCheckoutOpen(false);
-            setCheckoutPayload(null);
             if (postLoginView !== "detail") {
               setSelected(null);
+              setCheckoutOpen(false);
+              setCheckoutPayload(null);
             }
+
             setView(postLoginView);
             setToast("Logged in");
             setTimeout(() => setToast(null), 2200);
@@ -2780,7 +2914,10 @@ export default function App() {
         open={checkoutOpen}
         payload={checkoutPayload}
         hasPaymentMethod={hasPaymentMethod}
-        onClose={() => setCheckoutOpen(false)}
+        onClose={() => {
+          setCheckoutOpen(false);
+          setCheckoutPayload(null);
+        }}
         onConfirm={confirmPayment}
       />
 
