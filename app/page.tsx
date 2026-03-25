@@ -1918,7 +1918,7 @@ function MyListingsPage({
 }) {
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const deactivateListing = async (spotId: string) => {
+  cconst deactivateListing = async (spotId: string) => {
     if (!user) return;
 
     console.log("Deactivate attempt", {
