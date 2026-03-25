@@ -890,9 +890,6 @@ function CheckoutModal({
         <div className="p-5 grid gap-4">
           <div className="rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
             <div className="text-sm font-semibold">{spot.title}</div>
-            <div className="mt-1 text-[11px] text-zinc-400">
-              Owner: {spot.owner_id || "none"}
-            </div>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
               <span className="inline-flex items-center gap-1">
                 <MapPin className="h-4 w-4" /> {spot.area}
@@ -1039,7 +1036,6 @@ function HostPage({
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
-  const [debugInfo, setDebugInfo] = useState("");
   const [title, setTitle] = useState("");
   const [area, setArea] = useState("Côte-des-Neiges");
   const [priceHour, setPriceHour] = useState(4);
@@ -1053,7 +1049,7 @@ function HostPage({
 
   useEffect(() => {
     return () => {
-      if (photoPreview) {
+      if (photoPreview && photoPreview.startsWith("blob:")) {
         URL.revokeObjectURL(photoPreview);
       }
     };
@@ -1069,7 +1065,6 @@ function HostPage({
     try {
       if (!user) {
         onRequireLogin();
-        setSaving(false);
         return;
       }
 
@@ -1080,61 +1075,51 @@ function HostPage({
 
       if (photoFile && !photoFile.type.startsWith("image/")) {
         setErrorMsg("Please upload an image file.");
-        setSaving(false);
         return;
       }
 
       if (photoFile && photoFile.size > 5 * 1024 * 1024) {
         setErrorMsg("Image must be 5MB or smaller.");
-        setSaving(false);
         return;
       }
 
       if (!cleanTitle) {
         setErrorMsg("Please enter a title.");
-        setSaving(false);
         return;
       }
 
       if (!area.trim()) {
         setErrorMsg("Please select an area.");
-        setSaving(false);
         return;
       }
 
       if (!cleanAddressHint) {
         setErrorMsg("Please enter an address hint.");
-        setSaving(false);
         return;
       }
 
       if (!Number.isFinite(hour) || hour <= 0) {
         setErrorMsg("Price per hour must be greater than 0.");
-        setSaving(false);
         return;
       }
 
       if (!Number.isFinite(day) || day <= 0) {
         setErrorMsg("Price per day must be greater than 0.");
-        setSaving(false);
         return;
       }
 
       if (hour > 100) {
         setErrorMsg("Price per hour is too high. Please enter 100 CAD or less.");
-        setSaving(false);
         return;
       }
 
       if (day > 500) {
         setErrorMsg("Price per day is too high. Please enter 500 CAD or less.");
-        setSaving(false);
         return;
       }
 
       if (day < hour) {
         setErrorMsg("Price per day cannot be lower than price per hour.");
-        setSaving(false);
         return;
       }
 
@@ -1145,26 +1130,8 @@ function HostPage({
         error: getUserError,
       } = await supabase.auth.getUser();
 
-      setDebugInfo(
-        JSON.stringify(
-          {
-            envUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-            userPropId: user?.id ?? null,
-            currentUserId: currentUser?.id ?? null,
-            getUserError: getUserError?.message ?? null,
-          },
-          null,
-          2
-        )
-      );
-
-      console.log("publishListing user prop:", user);
-      console.log("publishListing currentUser from auth.getUser():", currentUser);
-      console.log("publishListing getUserError:", getUserError);
-
       if (getUserError || !currentUser) {
         setErrorMsg("Your session was not found. Please log in again.");
-        setSaving(false);
         return;
       }
 
@@ -1181,7 +1148,6 @@ function HostPage({
         if (uploadError) {
           console.error("Upload error:", uploadError);
           setErrorMsg("Failed to upload image.");
-          setSaving(false);
           return;
         }
 
@@ -1205,35 +1171,11 @@ function HostPage({
         description: "",
       };
 
-      console.log("spots insert payload:", payload);
-
-      const { data: insertedRow, error } = await supabase
-        .from("spots")
-        .insert(payload)
-        .select();
-
-      console.log("spots insert result:", { insertedRow, error });
-
-      setDebugInfo(
-        JSON.stringify(
-          {
-            envUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-            userPropId: user?.id ?? null,
-            currentUserId: currentUser?.id ?? null,
-            payload,
-            insertError: error?.message ?? null,
-            insertCode: error?.code ?? null,
-            insertedRow,
-          },
-          null,
-          2
-        )
-      );
+      const { error } = await supabase.from("spots").insert(payload);
 
       if (error) {
         console.error("Insert error:", error);
         setErrorMsg(error.message || "Failed to create listing.");
-        setSaving(false);
         return;
       }
 
@@ -1252,10 +1194,10 @@ function HostPage({
       }
 
       await onCreated();
-      setSaving(false);
     } catch (err) {
       console.error("Publish listing unexpected error:", err);
       setErrorMsg("Something went wrong while creating the listing.");
+    } finally {
       setSaving(false);
     }
   };
@@ -1379,10 +1321,9 @@ function HostPage({
                   const file = e.target.files?.[0] || null;
                   setPhotoFile(file);
 
-                  if (photoPreview) {
+                  if (photoPreview && photoPreview.startsWith("blob:")) {
                     URL.revokeObjectURL(photoPreview);
                   }
-
                   if (file) {
                     setPhotoPreview(URL.createObjectURL(file));
                   } else {
@@ -1474,12 +1415,6 @@ function HostPage({
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
                 Listing created successfully.
               </div>
-            )}
-
-            {debugInfo && (
-              <pre className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700 overflow-x-auto whitespace-pre-wrap">
-                {debugInfo}
-              </pre>
             )}
 
           </div>
@@ -1916,44 +1851,214 @@ function MyListingsPage({
   onRefresh: () => Promise<void> | void;
   onToast: (message: string) => void;
 }) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const deactivateListing = async (spotId: string) => {
+  const [editingSpot, setEditingSpot] = useState<Spot | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editArea, setEditArea] = useState("Côte-des-Neiges");
+  const [editPriceHour, setEditPriceHour] = useState(4);
+  const [editPriceDay, setEditPriceDay] = useState(20);
+  const [editAddressHint, setEditAddressHint] = useState("");
+  const [editDifficulty, setEditDifficulty] = useState<Spot["difficulty"]>("Easy");
+  const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
+  const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editErrorMsg, setEditErrorMsg] = useState("");
+
+  const openEditModal = (spot: Spot) => {
+    if (editPhotoPreview && editPhotoPreview.startsWith("blob:")) {
+      URL.revokeObjectURL(editPhotoPreview);
+    }
+
+    setEditingSpot(spot);
+    setEditTitle(spot.title);
+    setEditArea(spot.area);
+    setEditPriceHour(Number(spot.priceHour));
+    setEditPriceDay(Number(spot.priceDay));
+    setEditAddressHint(spot.addressHint || "");
+    setEditDifficulty(spot.difficulty);
+    setEditPhotoFile(null);
+    setEditPhotoPreview(spot.photo || null);
+    setEditErrorMsg("");
+    setEditSaving(false);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const closeEditModal = () => {
+    if (editPhotoPreview && editPhotoPreview.startsWith("blob:")) {
+      URL.revokeObjectURL(editPhotoPreview);
+    }
+
+    setEditingSpot(null);
+    setEditTitle("");
+    setEditArea("Côte-des-Neiges");
+    setEditPriceHour(4);
+    setEditPriceDay(20);
+    setEditAddressHint("");
+    setEditDifficulty("Easy");
+    setEditPhotoFile(null);
+    setEditPhotoPreview(null);
+    setEditErrorMsg("");
+    setEditSaving(false);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (editPhotoPreview && editPhotoPreview.startsWith("blob:")) {
+        URL.revokeObjectURL(editPhotoPreview);
+      }
+    };
+  }, [editPhotoPreview]);
+
+  const toggleListingActive = async (spot: Spot) => {
     if (!user) return;
 
-    console.log("Deactivate attempt", {
-      userId: user.id,
-      spotId,
-    });
-
-    setBusyId(spotId);
+    setBusyId(spot.id);
     const supabase = createClient();
+
+    const nextActive = spot.is_active === false ? true : false;
 
     const { error } = await supabase
       .from("spots")
-      .update({ is_active: false })
-      .eq("id", spotId)
+      .update({ is_active: nextActive })
+      .eq("id", spot.id)
       .eq("owner_id", user.id);
 
     setBusyId(null);
 
     if (error) {
-      console.error("Deactivate error:", error);
-      onToast(error.message || "Failed to deactivate listing.");
+      console.error("Toggle listing error:", error);
+      onToast(error.message || "Failed to update listing status.");
       return;
     }
 
     await onRefresh();
-    onToast("Listing deactivated.");
+    onToast(nextActive ? "Listing reactivated." : "Listing deactivated.");
+  };
+
+  const saveEditedListing = async () => {
+    if (!user || !editingSpot || editSaving) return;
+
+    setEditSaving(true);
+    setEditErrorMsg("");
+
+    try {
+      const cleanTitle = editTitle.trim();
+      const cleanAddressHint = editAddressHint.trim();
+      const hour = Number(editPriceHour);
+      const day = Number(editPriceDay);
+
+      if (!cleanTitle) {
+        setEditErrorMsg("Please enter a title.");
+        return;
+      }
+
+      if (!cleanAddressHint) {
+        setEditErrorMsg("Please enter an address hint.");
+        return;
+      }
+
+      if (!Number.isFinite(hour) || hour <= 0) {
+        setEditErrorMsg("Price per hour must be greater than 0.");
+        return;
+      }
+
+      if (!Number.isFinite(day) || day <= 0) {
+        setEditErrorMsg("Price per day must be greater than 0.");
+        return;
+      }
+
+      if (hour > 100) {
+        setEditErrorMsg("Price per hour is too high. Please enter 100 CAD or less.");
+        return;
+      }
+
+      if (day > 500) {
+        setEditErrorMsg("Price per day is too high. Please enter 500 CAD or less.");
+        return;
+      }
+
+      if (day < hour) {
+        setEditErrorMsg("Price per day cannot be lower than price per hour.");
+        return;
+      }
+
+      if (editPhotoFile && !editPhotoFile.type.startsWith("image/")) {
+        setEditErrorMsg("Please upload an image file.");
+        return;
+      }
+
+      if (editPhotoFile && editPhotoFile.size > 5 * 1024 * 1024) {
+        setEditErrorMsg("Image must be 5MB or smaller.");
+        return;
+      }
+
+      const supabase = createClient();
+
+      let photoUrl = editingSpot.photo || null;
+
+      if (editPhotoFile) {
+        const fileExt = editPhotoFile.name.split(".").pop();
+        const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("spot-photos")
+          .upload(fileName, editPhotoFile);
+
+        if (uploadError) {
+          setEditErrorMsg("Failed to upload image.");
+          return;
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from("spot-photos")
+          .getPublicUrl(fileName);
+
+        photoUrl = publicUrlData.publicUrl;
+      }
+
+      const { error } = await supabase
+        .from("spots")
+        .update({
+          title: cleanTitle,
+          area: editArea,
+          price_hour: hour,
+          price_day: day,
+          address_hint: cleanAddressHint,
+          difficulty: editDifficulty,
+          photo_url: photoUrl,
+        })
+        .eq("id", editingSpot.id)
+        .eq("owner_id", user.id);
+
+      if (error) {
+        setEditErrorMsg(error.message || "Failed to save listing.");
+        return;
+      }
+
+      await onRefresh();
+      closeEditModal();
+      onToast("Listing updated.");
+    } catch (err) {
+      console.error("Save edited listing error:", err);
+      setEditErrorMsg("Something went wrong while saving.");
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div>
         <div className="text-xl font-semibold">My listings</div>
-        <div className="mt-1 text-xs text-zinc-400">
-          Current user: {user?.id || "none"}
-        </div>
         <div className="text-sm text-zinc-600">
           Manage your active and inactive parking listings
         </div>
@@ -2000,21 +2105,27 @@ function MyListingsPage({
 
                 <div className="mt-4 flex gap-2">
                   <button
-                    disabled
-                    className="rounded-xl bg-zinc-100 px-3 py-2 text-xs font-medium text-zinc-500"
+                    onClick={() => openEditModal(spot)}
+                    className="rounded-xl bg-zinc-100 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-200"
                   >
-                    Edit coming soon
+                    Edit
                   </button>
 
                   <button
-                    onClick={() => deactivateListing(spot.id)}
-                    disabled={busyId === spot.id || spot.is_active === false}
-                    className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                    onClick={() => toggleListingActive(spot)}
+                    disabled={busyId === spot.id}
+                    className={
+                      spot.is_active === false
+                        ? "rounded-xl bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+                        : "rounded-xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                    }
                   >
                     {busyId === spot.id
-                      ? "Deactivating..."
+                      ? spot.is_active === false
+                        ? "Reactivating..."
+                        : "Deactivating..."
                       : spot.is_active === false
-                      ? "Inactive"
+                      ? "Reactivate"
                       : "Deactivate"}
                   </button>
                 </div>
@@ -2023,6 +2134,162 @@ function MyListingsPage({
           ))
         )}
       </div>
+
+      {editingSpot && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+          <div className="w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-lg font-semibold">Edit listing</div>
+                <div className="text-sm text-zinc-600">
+                  Update your posting and save changes
+                </div>
+              </div>
+              <button
+                onClick={closeEditModal}
+                className="text-sm text-zinc-600 hover:text-zinc-900"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              <label className="grid gap-1">
+                <span className="text-xs text-zinc-500">Title</span>
+                <input
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                />
+              </label>
+
+              <label className="grid gap-1">
+                <span className="text-xs text-zinc-500">Area</span>
+                <select
+                  value={editArea}
+                  onChange={(e) => setEditArea(e.target.value)}
+                  className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                >
+                  <option value="Côte-des-Neiges">Côte-des-Neiges</option>
+                  <option value="Outremont">Outremont</option>
+                  <option value="Plateau">Plateau</option>
+                  <option value="Downtown">Downtown</option>
+                </select>
+              </label>
+
+              <label className="grid gap-1">
+                <span className="text-xs text-zinc-500">Price per hour (CAD)</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={editPriceHour}
+                  onChange={(e) => setEditPriceHour(Number(e.target.value))}
+                  className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                />
+              </label>
+
+              <label className="grid gap-1">
+                <span className="text-xs text-zinc-500">Price per day (CAD)</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={editPriceDay}
+                  onChange={(e) => setEditPriceDay(Number(e.target.value))}
+                  className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                />
+              </label>
+
+              <label className="grid gap-1">
+                <span className="text-xs text-zinc-500">Address hint</span>
+                <input
+                  value={editAddressHint}
+                  onChange={(e) => setEditAddressHint(e.target.value)}
+                  className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                />
+              </label>
+
+              <label className="grid gap-1">
+                <span className="text-xs text-zinc-500">Difficulty</span>
+                <select
+                  value={editDifficulty}
+                  onChange={(e) => setEditDifficulty(e.target.value as Spot["difficulty"])}
+                  className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                >
+                  <option value="Easy">Easy</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Hard">Hard</option>
+                </select>
+              </label>
+
+              <label className="grid gap-1">
+                <span className="text-xs text-zinc-500">Photo (optional)</span>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  id="edit-spot-photo-upload"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    setEditPhotoFile(file);
+
+                    if (file) {
+                      if (editPhotoPreview && editPhotoPreview.startsWith("blob:")) {
+                        URL.revokeObjectURL(editPhotoPreview);
+                      }
+                      setEditPhotoPreview(URL.createObjectURL(file));
+                    } else {
+                      setEditPhotoPreview(editingSpot.photo || null);
+                    }
+                  }}
+                />
+
+                <label
+                  htmlFor="edit-spot-photo-upload"
+                  className="inline-flex w-fit cursor-pointer items-center rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  Choose photo
+                </label>
+
+                {editPhotoPreview && (
+                  <div className="mt-2 overflow-hidden rounded-2xl border border-zinc-200">
+                    <img
+                      src={editPhotoPreview}
+                      alt="Preview"
+                      className="h-40 w-full object-cover"
+                    />
+                  </div>
+                )}
+              </label>
+
+              {editErrorMsg && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {editErrorMsg}
+                </div>
+              )}
+
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={saveEditedListing}
+                  disabled={editSaving}
+                  className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:bg-zinc-300"
+                >
+                  {editSaving ? "Saving..." : "Save changes"}
+                </button>
+
+                <button
+                  onClick={closeEditModal}
+                  disabled={editSaving}
+                  className="rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2071,7 +2338,11 @@ function LoginPage({
 
         setMessage("Account created. You can now log in.");
         setMode("login");
+        setPassword("");
       }
+    } catch (err) {
+      console.error("Auth error:", err);
+      setMessage("Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
