@@ -746,7 +746,7 @@ function SpotDetail({
         .from("bookings")
         .select("id, start_at, end_at, status")
         .eq("spot_id", spot.id)
-        .neq("status", "Cancelled")
+        .neq("status", "cancelled")
         .lt("start_at", endOfDay.toISOString())
         .gt("end_at", startOfDay.toISOString())
         .order("start_at", { ascending: true });
@@ -2709,7 +2709,7 @@ export default function App() {
           subtotal: Number(row.subtotal),
           tax: Number(row.tax),
           total: Number(row.total),
-          status: row.status === "Cancelled" ? "Cancelled" : "Confirmed",
+          status: row.status === "cancelled" ? "cancelled" : "confirmed",
         };
       })
       .filter((row): row is Booking => row !== null);
@@ -2798,7 +2798,7 @@ export default function App() {
       subtotal: p.subtotal,
       tax: p.tax,
       total: p.total,
-      status: "Confirmed",
+      status: "confirmed",
     });
 
     if (error) {
@@ -2850,7 +2850,7 @@ export default function App() {
 
     const { error } = await supabase
       .from("bookings")
-      .update({ status: "Cancelled" })
+      .update({ status: "cancelled" })
       .eq("id", b.id)
       .eq("renter_id", user.id);
 
