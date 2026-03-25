@@ -78,7 +78,7 @@ type Booking = {
   subtotal: number;
   tax: number;
   total: number;
-  status: "Confirmed" | "Cancelled";
+  status: "confirmed" | "cancelled" | "completed";
   isPast?: boolean;
 };
 
@@ -1775,7 +1775,7 @@ function BookingCard({
   onReview: (b: Booking) => void;
 }) {
   const startAt = b.startAt instanceof Date ? b.startAt : new Date(b.startAt);
-  const canCancel = b.status === "Confirmed" && hoursBetween(new Date(), startAt) >= 2;
+  const canCancel = b.status === "confirmed" && hoursBetween(new Date(), startAt) >= 2;
 
   return (
     <div className="rounded-3xl border border-zinc-200 bg-white p-5">
@@ -1795,8 +1795,8 @@ function BookingCard({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Badge tone={b.status === "Cancelled" ? "Bad" : b.isPast ? "Neutral" : "Info"}>
-            {b.status === "Cancelled" ? "Cancelled" : b.isPast ? "Previous" : `Current • ${countdownLabel(startAt)}`}
+          <Badge tone={b.status === "cancelled" ? "Bad" : b.isPast ? "Neutral" : "Info"}>
+            {b.status === "cancelled" ? "Cancelled" : b.isPast ? "Previous" : `Current • ${countdownLabel(startAt)}`}
           </Badge>
         </div>
       </div>
@@ -1819,10 +1819,10 @@ function BookingCard({
 
         <button
           onClick={() => onReview(b)}
-          disabled={!b.isPast || b.status !== "Confirmed"}
+          disabled={!b.isPast && b.status === "confirmed"}
           className={cx(
             "px-3 py-2 rounded-xl text-xs font-medium inline-flex items-center gap-2",
-            b.isPast && b.status === "Confirmed"
+            b.isPast && b.status === "confirmed"
               ? "bg-zinc-100 text-zinc-800 hover:bg-zinc-200"
               : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
           )}
@@ -1849,7 +1849,7 @@ function BookingCard({
         </div>
       </div>
 
-      {!canCancel && !b.isPast && b.status === "Confirmed" && (
+      {!canCancel && !b.isPast && b.status === "confirmed" && (
         <div className="mt-3 text-xs text-zinc-500">Cancellation allowed until 2 hours before start time.</div>
       )}
     </div>
@@ -2580,7 +2580,7 @@ export default function App() {
     subtotal: number | string;
     tax: number | string;
     total: number | string;
-    status: "Confirmed" | "Cancelled" | string;
+    status: "confirmed" | "cancelled" | "completed" | string;
     created_at?: string;
     spots?: SpotRow | SpotRow[] | null;
   };
@@ -2709,7 +2709,12 @@ export default function App() {
           subtotal: Number(row.subtotal),
           tax: Number(row.tax),
           total: Number(row.total),
-          status: row.status === "cancelled" ? "cancelled" : "confirmed",
+          status:
+            row.status === "cancelled"
+              ? "cancelled"
+              : row.status === "completed"
+              ? "completed"
+              : "confirmed",
         };
       })
       .filter((row): row is Booking => row !== null);
@@ -2771,7 +2776,7 @@ export default function App() {
       .from("bookings")
       .select("id,start_at,end_at,status")
       .eq("spot_id", p.spot.id)
-      .neq("status", "Cancelled")
+      .neq("status", "cancelled")
       .lt("start_at", endAt.toISOString())
       .gt("end_at", new Date(p.startAt).toISOString());
 
