@@ -3325,6 +3325,7 @@ export default function App() {
           onReview={leaveReview}
         />
       )}
+      
 
       {view === "profile" && (
         <ProfilePage
