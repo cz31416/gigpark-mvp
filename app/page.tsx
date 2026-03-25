@@ -1563,102 +1563,60 @@ function HostPage({
   );
 }
 
-function ChatPage({ onProposeDeal }: { onProposeDeal: (amount: number) => void }) {
-  const [draft, setDraft] = useState("");
-  const [msgs, setMsgs] = useState(MOCK_MESSAGES);
-
-  const send = () => {
-    const t = draft.trim();
-    if (!t) return;
-    setMsgs((m) => [...m, { from: "You", side: "me", text: t }]);
-    setDraft("");
-  };
-
-  return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
-      <div className="grid gap-6 md:grid-cols-[320px_1fr]">
-        <div className="rounded-3xl border border-zinc-200 bg-white overflow-hidden">
-          <div className="p-4 border-b border-zinc-200">
-            <div className="text-sm font-semibold">Messages</div>
-            <div className="text-xs text-zinc-500">Your conversations</div>
-          </div>
-          <div className="p-2">
-            <button className="w-full text-left p-3 rounded-2xl bg-zinc-100">
-              <div className="text-sm font-semibold">Alex</div>
-              <div className="text-xs text-zinc-600 truncate">Hi! What time are you arriving?</div>
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-zinc-200 bg-white overflow-hidden">
-          <div className="p-4 border-b border-zinc-200 flex items-center justify-between">
-            <div>
-              <div className="text-sm font-semibold">Alex</div>
-              <div className="text-xs text-zinc-500">Conversation thread • Booking details</div>
-            </div>
-            <button
-              onClick={() => onProposeDeal(30)}
-              className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-xs font-medium hover:bg-zinc-800"
-            >
-              Propose deal for {money(30)}
-            </button>
-          </div>
-
-          <div className="p-4 h-[360px] overflow-auto space-y-2">
-            {msgs.map((m, idx) => (
-              <div key={idx} className={cx("flex", m.side === "me" ? "justify-end" : "justify-start")}>
-                <div
-                  className={cx(
-                    "max-w-[78%] rounded-2xl px-3 py-2 text-sm",
-                    m.side === "me" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-800"
-                  )}
-                >
-                  {m.text}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="p-4 border-t border-zinc-200">
-            <div className="flex items-center gap-2">
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Type a message"
-                className="flex-1 rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-                onKeyDown={(e) => (e.key === "Enter" ? send() : null)}
-              />
-              <button onClick={send} className="px-4 py-2 rounded-2xl bg-zinc-900 text-white text-sm hover:bg-zinc-800">
-                Send
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProfilePage({
+function ChatPage({
   user,
-  hasPaymentMethod,
-  setHasPaymentMethod,
-  onGoBookings,
+  bookings,
+  onProposeDeal,
+  onOpenBooking,
   onRequireLogin,
 }: {
   user: User | null;
-  hasPaymentMethod: boolean;
-  setHasPaymentMethod: React.Dispatch<React.SetStateAction<boolean>>;
-  onGoBookings: () => void;
+  bookings: Booking[];
+  onProposeDeal: (amount: number) => void;
+  onOpenBooking: (b: Booking) => void;
   onRequireLogin: () => void;
 }) {
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [threads, setThreads] = useState<Record<string, { from: string; side: "me" | "them"; text: string }[]>>({});
+
+  useEffect(() => {
+    if (bookings.length === 0) {
+      setSelectedBookingId(null);
+      return;
+    }
+
+    setSelectedBookingId((prev) => {
+      if (prev && bookings.some((b) => b.id === prev)) return prev;
+      return bookings[0].id;
+    });
+
+    setThreads((prev) => {
+      const next = { ...prev };
+
+      for (const b of bookings) {
+        if (!next[b.id]) {
+          next[b.id] = [
+            {
+              from: "Host",
+              side: "them",
+              text: `Hi! Thanks for booking ${b.spot.title}. Message me here if you need arrival details.`,
+            },
+          ];
+        }
+      }
+
+      return next;
+    });
+  }, [bookings]);
+
   if (!user) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-10">
         <div className="rounded-3xl border border-zinc-200 bg-white p-8 text-center">
-          <div className="text-2xl font-semibold">Profile</div>
+          <div className="text-2xl font-semibold">Chat</div>
           <div className="mt-2 text-sm text-zinc-600">
-            Log in to view your payment method, bookings, ratings, and wallet.
+            Log in to message hosts about your bookings.
           </div>
 
           <button
@@ -1672,6 +1630,200 @@ function ProfilePage({
     );
   }
 
+  if (bookings.length === 0) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-10">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-8 text-center">
+          <div className="text-2xl font-semibold">No conversations yet</div>
+          <div className="mt-2 text-sm text-zinc-600">
+            Conversations appear after you make a booking.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const selectedBooking = bookings.find((b) => b.id === selectedBookingId) ?? bookings[0];
+  const messages = threads[selectedBooking.id] ?? [];
+  const hostName = selectedBooking.spot.host.name || "Host";
+
+  const send = () => {
+    const text = draft.trim();
+    if (!text) return;
+
+    setThreads((prev) => ({
+      ...prev,
+      [selectedBooking.id]: [
+        ...(prev[selectedBooking.id] ?? []),
+        { from: "You", side: "me", text },
+      ],
+    }));
+
+    setDraft("");
+  };
+
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-6">
+      <div className="grid gap-6 md:grid-cols-[320px_1fr]">
+        <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white">
+          <div className="border-b border-zinc-200 p-4">
+            <div className="text-sm font-semibold">Messages</div>
+            <div className="text-xs text-zinc-500">Conversations from your bookings</div>
+          </div>
+
+          <div className="p-2">
+            {bookings.map((b) => {
+              const isActive = b.id === selectedBooking.id;
+              const preview = (threads[b.id]?.[threads[b.id]?.length - 1]?.text ?? "Open conversation");
+              const startAt = b.startAt instanceof Date ? b.startAt : new Date(b.startAt);
+
+              return (
+                <button
+                  key={b.id}
+                  onClick={() => setSelectedBookingId(b.id)}
+                  className={cx(
+                    "mb-2 w-full rounded-2xl p-3 text-left",
+                    isActive ? "bg-zinc-100" : "hover:bg-zinc-50"
+                  )}
+                >
+                  <div className="text-sm font-semibold truncate">{b.spot.title}</div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    {fmtDateTime(startAt)}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-zinc-600">{preview}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white">
+          <div className="flex items-center justify-between border-b border-zinc-200 p-4">
+            <div>
+              <div className="text-sm font-semibold">{hostName}</div>
+              <div className="text-xs text-zinc-500">
+                {selectedBooking.spot.title} • {selectedBooking.spot.area}
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => onOpenBooking(selectedBooking)}
+                className="rounded-xl bg-zinc-100 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-200"
+              >
+                View booking
+              </button>
+              <button
+                onClick={() => onProposeDeal(selectedBooking.spot.priceHour)}
+                className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800"
+              >
+                Propose deal
+              </button>
+            </div>
+          </div>
+
+          <div className="border-b border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
+            Booking status: <span className="font-medium capitalize">{selectedBooking.status}</span>
+          </div>
+
+          <div className="h-[360px] space-y-2 overflow-auto p-4">
+            {messages.map((m, idx) => (
+              <div key={idx} className={cx("flex", m.side === "me" ? "justify-end" : "justify-start")}>
+                <div
+                  className={cx(
+                    "max-w-[78%] rounded-2xl px-3 py-2 text-sm",
+                    m.side === "me" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-800"
+                  )}
+                >
+                  {m.text}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="border-t border-zinc-200 p-4">
+            <div className="flex items-center gap-2">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => (e.key === "Enter" ? send() : null)}
+                placeholder="Type a message"
+                className="flex-1 rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+              />
+              <button
+                onClick={send}
+                className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm text-white hover:bg-zinc-800"
+              >
+                Send
+              </button>
+            </div>
+            <div className="mt-2 text-xs text-zinc-500">
+              MVP note: messages are currently session-based and not yet stored in the database.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfilePage({
+  user,
+  profile,
+  profileLoading,
+  profileSaving,
+  onSaveProfile,
+  hasPaymentMethod,
+  setHasPaymentMethod,
+  bookings,
+  myListings,
+  onGoBookings,
+  onRequireLogin,
+}: {
+  user: User | null;
+  profile: { full_name: string; email: string; phone: string };
+  profileLoading: boolean;
+  profileSaving: boolean;
+  onSaveProfile: (next: { full_name: string; phone: string }) => Promise<void>;
+  hasPaymentMethod: boolean;
+  setHasPaymentMethod: React.Dispatch<React.SetStateAction<boolean>>;
+  bookings: Booking[];
+  myListings: Spot[];
+  onGoBookings: () => void;
+  onRequireLogin: () => void;
+}) {
+  const [fullName, setFullName] = useState(profile.full_name);
+  const [phone, setPhone] = useState(profile.phone);
+
+  useEffect(() => {
+    setFullName(profile.full_name);
+    setPhone(profile.phone);
+  }, [profile.full_name, profile.phone]);
+
+  if (!user) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-10">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-8 text-center">
+          <div className="text-2xl font-semibold">Profile</div>
+          <div className="mt-2 text-sm text-zinc-600">
+            Log in to view and manage your profile.
+          </div>
+
+          <button
+            onClick={onRequireLogin}
+            className="mt-6 rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-800"
+          >
+            Log in
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const activeBookings = bookings.filter((b) => b.status === "confirmed").length;
+  const completedBookings = bookings.filter((b) => b.status === "completed").length;
+  const cancelledBookings = bookings.filter((b) => b.status === "cancelled").length;
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div className="grid gap-6 md:grid-cols-[1fr_360px]">
@@ -1681,80 +1833,139 @@ function ProfilePage({
               <div className="text-xl font-semibold">Your profile</div>
               <div className="text-sm text-zinc-600">{user.email}</div>
             </div>
-            <div className="flex gap-2">
-              <button className="px-3 py-2 rounded-xl bg-zinc-100 text-sm">Edit</button>
-              <button onClick={onGoBookings} className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-sm">
-                Bookings
+            <button
+              onClick={onGoBookings}
+              className="rounded-xl bg-zinc-900 px-3 py-2 text-sm text-white hover:bg-zinc-800"
+            >
+              Bookings
+            </button>
+          </div>
+
+          <div className="mt-6 rounded-3xl border border-zinc-200 p-4">
+            <div className="text-sm font-semibold">Personal details</div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <label className="grid gap-1">
+                <span className="text-xs text-zinc-500">Full name</span>
+                <input
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Your full name"
+                  className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                />
+              </label>
+
+              <label className="grid gap-1">
+                <span className="text-xs text-zinc-500">Phone</span>
+                <input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="Your phone number"
+                  className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                />
+              </label>
+
+              <label className="grid gap-1 md:col-span-2">
+                <span className="text-xs text-zinc-500">Email</span>
+                <input
+                  value={profile.email || user.email || ""}
+                  disabled
+                  className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-500 outline-none"
+                />
+              </label>
+            </div>
+
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                onClick={() => onSaveProfile({ full_name: fullName.trim(), phone: phone.trim() })}
+                disabled={profileLoading || profileSaving}
+                className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:bg-zinc-300"
+              >
+                {profileSaving ? "Saving..." : "Save profile"}
               </button>
+
+              {profileLoading && (
+                <div className="text-xs text-zinc-500">Loading profile...</div>
+              )}
             </div>
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             <div className="rounded-3xl border border-zinc-200 p-4">
-              <div className="text-sm font-semibold">Stats</div>
+              <div className="text-sm font-semibold">Account stats</div>
               <div className="mt-3 grid gap-2 text-sm text-zinc-700">
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-600">Parks completed</span>
-                  <span className="font-semibold">12</span>
+                  <span className="text-zinc-600">Active bookings</span>
+                  <span className="font-semibold">{activeBookings}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-600">Star rating</span>
-                  <span className="font-semibold">4.7</span>
+                  <span className="text-zinc-600">Completed bookings</span>
+                  <span className="font-semibold">{completedBookings}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-600">On-time rate</span>
-                  <span className="font-semibold">98%</span>
+                  <span className="text-zinc-600">Cancelled bookings</span>
+                  <span className="font-semibold">{cancelledBookings}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-600">Listings created</span>
+                  <span className="font-semibold">{myListings.length}</span>
                 </div>
               </div>
             </div>
 
             <div className="rounded-3xl border border-zinc-200 p-4">
               <div className="text-sm font-semibold">Payment</div>
-              <div className="mt-3 rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
+              <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="flex items-center justify-between">
-                  <div className="text-sm text-zinc-700 flex items-center gap-2">
+                  <div className="flex items-center gap-2 text-sm text-zinc-700">
                     <CreditCard className="h-4 w-4" />
                     <span>{hasPaymentMethod ? "Card ending •••• 1234" : "No payment method"}</span>
                   </div>
                   <button
                     onClick={() => setHasPaymentMethod(true)}
                     className={cx(
-                      "text-xs font-medium px-3 py-2 rounded-xl",
+                      "rounded-xl px-3 py-2 text-xs font-medium",
                       hasPaymentMethod ? "bg-zinc-100 text-zinc-700" : "bg-zinc-900 text-white"
                     )}
                   >
                     {hasPaymentMethod ? "Update" : "Add"}
                   </button>
                 </div>
-                <div className="mt-2 text-xs text-zinc-500">Required to confirm bookings</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6 rounded-3xl border border-zinc-200 p-4">
-            <div className="text-sm font-semibold">Reviews</div>
-            <div className="mt-3 grid gap-3">
-              <div className="rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium">Alex</div>
-                  <div className="text-xs text-zinc-600 inline-flex items-center gap-1">
-                    <Star className="h-4 w-4" /> 4/5
-                  </div>
+                <div className="mt-2 text-xs text-zinc-500">
+                  MVP note: payment method is still demo-only.
                 </div>
-                <div className="mt-2 text-sm text-zinc-700">Smooth booking and easy entry. Would use again.</div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 h-fit">
+        <div className="h-fit rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold">Wallet</div>
-          <div className="mt-3 rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
+          <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-xs text-zinc-500">Available balance</div>
-            <div className="mt-1 text-2xl font-semibold">{money(30)}</div>
-            <div className="mt-2 text-xs text-zinc-600">Payouts and holds will appear here.</div>
+            <div className="mt-1 text-2xl font-semibold">{money(0)}</div>
+            <div className="mt-2 text-xs text-zinc-600">
+              Host payouts are not connected yet.
+            </div>
           </div>
-          <div className="mt-4 text-xs text-zinc-600">Future: host payouts, tax summaries, and withdrawal settings.</div>
+
+          <div className="mt-6 rounded-2xl border border-zinc-200 p-4">
+            <div className="text-sm font-semibold">Account readiness</div>
+            <div className="mt-3 grid gap-2 text-sm text-zinc-700">
+              <div className="flex items-center justify-between">
+                <span>Name added</span>
+                <span className="font-medium">{fullName.trim() ? "Yes" : "No"}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Phone added</span>
+                <span className="font-medium">{phone.trim() ? "Yes" : "No"}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Payment method</span>
+                <span className="font-medium">{hasPaymentMethod ? "Yes" : "No"}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -2532,6 +2743,13 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [myListings, setMyListings] = useState<Spot[]>([]);
+  const [profile, setProfile] = useState({
+    full_name: "",
+    email: "",
+    phone: "",
+  });
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
 
   const requireLoginFor = (targetView: View) => {
     setPostLoginView(targetView);
@@ -2542,8 +2760,13 @@ export default function App() {
     const supabase = createClient();
     await supabase.auth.signOut();
     setUser(null);
-    setMyListings([]);
     setBookings([]);
+    setMyListings([]);
+    setProfile({
+      full_name: "",
+      email: "",
+      phone: "",
+    });
     setHasPaymentMethod(false);
     setSelected(null);
     setCheckoutOpen(false);
@@ -2583,6 +2806,14 @@ export default function App() {
     status: "confirmed" | "cancelled" | "completed" | string;
     created_at?: string;
     spots?: SpotRow | SpotRow[] | null;
+  };
+
+  type ProfileRow = {
+    id: string;
+    full_name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    created_at?: string | null;
   };
 
   const mapSpotRow = (s: SpotRow): Spot => ({
@@ -2722,6 +2953,88 @@ export default function App() {
     setBookings(mapped);
   };
 
+  const loadProfile = async (currentUser?: User | null) => {
+    const activeUser = currentUser ?? user;
+
+    if (!activeUser) {
+      setProfile({
+        full_name: "",
+        email: "",
+        phone: "",
+      });
+      return;
+    }
+
+    setProfileLoading(true);
+
+    try {
+      const supabase = createClient();
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", activeUser.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Failed to load profile:", error);
+        setToast("Failed to load profile");
+        setTimeout(() => setToast(null), 2200);
+        return;
+      }
+
+      const row = data as ProfileRow | null;
+
+      setProfile({
+        full_name: row?.full_name ?? "",
+        email: row?.email ?? activeUser.email ?? "",
+        phone: row?.phone ?? "",
+      });
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  const saveProfile = async (next: { full_name: string; phone: string }) => {
+    if (!user) return;
+
+    setProfileSaving(true);
+
+    try {
+      const supabase = createClient();
+
+      const payload = {
+        id: user.id,
+        full_name: next.full_name,
+        email: user.email ?? "",
+        phone: next.phone,
+      };
+
+      const { error } = await supabase
+        .from("profiles")
+        .upsert(payload, { onConflict: "id" });
+
+      if (error) {
+        console.error("Failed to save profile:", error);
+        setToast(error.message || "Failed to save profile");
+        setTimeout(() => setToast(null), 2200);
+        return;
+      }
+
+      setProfile((prev) => ({
+        ...prev,
+        full_name: next.full_name,
+        email: user.email ?? prev.email,
+        phone: next.phone,
+      }));
+
+      setToast("Profile saved");
+      setTimeout(() => setToast(null), 2200);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
   useEffect(() => {
   const supabase = createClient();
 
@@ -2733,6 +3046,7 @@ export default function App() {
     setUser(user ?? null);
     await loadMyListings(user ?? null);
     await loadBookings(user ?? null);
+    await loadProfile(user ?? null);
   };
 
   loadUser();
@@ -2745,6 +3059,7 @@ export default function App() {
     setUser(nextUser);
     loadMyListings(nextUser);
     loadBookings(nextUser);
+    loadProfile(nextUser);
   });
 
   return () => {
@@ -2987,7 +3302,19 @@ export default function App() {
         />
       )}
 
-      {view === "chat" && <ChatPage onProposeDeal={proposeDeal} />}
+      {view === "chat" && (
+        <ChatPage
+          user={user}
+          bookings={bookings}
+          onProposeDeal={proposeDeal}
+          onOpenBooking={(b) => {
+            setToast(`Opening booking: ${b.spot.title}`);
+            setTimeout(() => setToast(null), 1800);
+            setView("bookings");
+          }}
+          onRequireLogin={() => requireLoginFor("chat")}
+        />
+      )}
 
       {view === "bookings" && (
         <BookingsPage
@@ -3002,8 +3329,14 @@ export default function App() {
       {view === "profile" && (
         <ProfilePage
           user={user}
+          profile={profile}
+          profileLoading={profileLoading}
+          profileSaving={profileSaving}
+          onSaveProfile={saveProfile}
           hasPaymentMethod={hasPaymentMethod}
           setHasPaymentMethod={setHasPaymentMethod}
+          bookings={bookings}
+          myListings={myListings}
           onGoBookings={() => setView("bookings")}
           onRequireLogin={() => requireLoginFor("profile")}
         />
