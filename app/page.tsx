@@ -1910,13 +1910,33 @@ function HostPage({
                 setAvailabilityMode(next);
               }}
               recurringContent={
-                <RecurringAvailabilityEditor
-                  value={availability}
+                <AvailabilityModeSelector
+                  mode={availabilityMode}
                   onChange={(next) => {
                     setSubmitted(false);
                     setErrorMsg("");
-                    setAvailability(next);
+                    setAvailabilityMode(next);
                   }}
+                  recurringContent={
+                    <RecurringAvailabilityEditor
+                      value={availability}
+                      onChange={(next) => {
+                        setSubmitted(false);
+                        setErrorMsg("");
+                        setAvailability(next);
+                      }}
+                    />
+                  }
+                  specificContent={
+                    <SpecificDatesEditor
+                      value={specificAvailability}
+                      onChange={(next) => {
+                        setSubmitted(false);
+                        setErrorMsg("");
+                        setSpecificAvailability(next);
+                      }}
+                    />
+                  }
                 />
               }
               specificContent={
