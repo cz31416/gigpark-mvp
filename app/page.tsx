@@ -85,7 +85,7 @@ type Spot = {
   photo: string | null;
   difficulty: "Easy" | "Medium" | "Hard";
   description: string;
-  availability: Availability;
+  availability?: Availability;
   host: {
     name: string;
     rating: number;
@@ -117,6 +117,23 @@ type CheckoutPayload = {
   tax: number;
   total: number;
   startAt: Date;
+};
+
+type SpotTimeWindow = {
+  id: string;
+  spot_id: string;
+  source_type: "recurring" | "specific";
+  day_key: DayKey | null;
+  specific_date: string | null;
+  start_time: string;
+  end_time: string;
+  created_at?: string;
+};
+
+type SpecificAvailabilityRow = {
+  date: string;
+  start: string;
+  end: string;
 };
 
 function nextOccurrence(dayKey: keyof typeof DAY_TO_JS, hhmm: string) {
@@ -742,9 +759,41 @@ function SpotDetail({
     { id: string; start_at: string; end_at: string; status: string }[]
   >([]);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
+  const [timeWindows, setTimeWindows] = useState<SpotTimeWindow[]>([]);
 
   const selectedDayKey = getDayKeyFromDate(bookingDate);
-  const av = spot.availability?.[selectedDayKey] ?? null;
+  const recurringWindow =
+    timeWindows.find(
+      (w) => w.source_type === "recurring" && w.day_key === selectedDayKey
+    ) ?? null;
+
+  const specificWindows = timeWindows.filter(
+    (w) => w.source_type === "specific" && w.specific_date === bookingDate
+  );
+
+  const recurringRanges =
+    recurringWindow
+      ? [[recurringWindow.start_time, recurringWindow.end_time] as [string, string]]
+      : [];
+
+  const specificRanges = specificWindows.map(
+    (w) => [w.start_time, w.end_time] as [string, string]
+  );
+
+  const activeRanges =
+    specificRanges.length > 0 ? specificRanges : recurringRanges;
+
+  const hasAvailability = activeRanges.length > 0;
+
+  const timeSlots = useMemo(() => {
+    if (activeRanges.length === 0) return [];
+
+    const merged = activeRanges.flatMap(([start, end]) =>
+      generateTimeSlots(start, end, 30)
+    );
+
+    return Array.from(new Set(merged)).sort();
+  }, [activeRanges]);
   const durationHours =
     duration === "1h" ? 1 :
     duration === "2h" ? 2 :
@@ -777,7 +826,17 @@ function SpotDetail({
     const loadSpotBookings = async () => {
       setLoadingAvailability(true);
       const supabase = createClient();
+      const { data: windowsData, error: windowsError } = await supabase
+        .from("spot_time_windows")
+        .select("*")
+        .eq("spot_id", spot.id);
 
+      if (windowsError) {
+        console.error("Failed to load spot time windows:", windowsError);
+        setTimeWindows([]);
+      } else {
+        setTimeWindows((windowsData || []) as SpotTimeWindow[]);
+      }
       const startOfDay = new Date(`${bookingDate}T00:00:00`);
       const endOfDay = new Date(`${bookingDate}T23:59:59`);
 
@@ -816,7 +875,7 @@ function SpotDetail({
     hasTimeConflict(selectedStartAt, selectedEndAt, spotBookings);
 
   const handleBookNow = () => {
-    if (!av || !bookingStartTime || !selectedStartAt) {
+    if (!hasAvailability || !bookingStartTime || !selectedStartAt) {
       return;
     }
     if (!user) {
@@ -920,7 +979,7 @@ function SpotDetail({
             <div>
               <div className="text-xs text-zinc-500 mb-1">Choose start time</div>
 
-              {!av ? (
+              {!hasAvailability ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
                   This spot is unavailable on the selected day.
                 </div>
@@ -993,7 +1052,7 @@ function SpotDetail({
               <div className="mt-2 text-xs text-zinc-500">
                 {loadingAvailability
                   ? "Checking availability..."
-                  : !av
+                  : !hasAvailability
                   ? "This spot is unavailable on that day."
                   : selectedSlotUnavailable
                   ? "That time is already booked."
@@ -1182,7 +1241,7 @@ function SearchPage({
   );
 }
 
-function AvailabilityEditor({
+function RecurringAvailabilityEditor({
   value,
   onChange,
 }: {
@@ -1276,6 +1335,179 @@ function AvailabilityEditor({
   );
 }
 
+function SpecificDatesEditor({
+  value,
+  onChange,
+}: {
+  value: SpecificAvailabilityRow[];
+  onChange: (next: SpecificAvailabilityRow[]) => void;
+}) {
+  const [date, setDate] = useState("");
+  const [start, setStart] = useState("09:00");
+  const [end, setEnd] = useState("17:00");
+
+  const addRow = () => {
+    if (!date || !start || !end) return;
+    if (start >= end) return;
+
+    onChange([
+      ...value,
+      { date, start, end },
+    ]);
+
+    setDate("");
+    setStart("09:00");
+    setEnd("17:00");
+  };
+
+  const removeRow = (idx: number) => {
+    onChange(value.filter((_, i) => i !== idx));
+  };
+
+  return (
+    <div className="rounded-2xl border border-zinc-200 p-4">
+      <div className="text-sm font-semibold">Specific dates</div>
+      <div className="mt-1 text-xs text-zinc-500">
+        Add one-off availability windows for exact dates
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+        <input
+          type="date"
+          value={date}
+          min={new Date().toISOString().slice(0, 10)}
+          onChange={(e) => setDate(e.target.value)}
+          className="rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+        />
+        <input
+          type="time"
+          value={start}
+          onChange={(e) => setStart(e.target.value)}
+          className="rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+        />
+        <input
+          type="time"
+          value={end}
+          onChange={(e) => setEnd(e.target.value)}
+          className="rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+        />
+        <button
+          type="button"
+          onClick={addRow}
+          className="rounded-xl bg-zinc-900 px-4 py-2 text-sm text-white hover:bg-zinc-800"
+        >
+          Add
+        </button>
+      </div>
+
+      <div className="mt-4 grid gap-2">
+        {value.length === 0 ? (
+          <div className="text-xs text-zinc-500">No specific dates added.</div>
+        ) : (
+          value.map((row, idx) => (
+            <div
+              key={`${row.date}-${row.start}-${row.end}-${idx}`}
+              className="flex items-center justify-between rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+            >
+              <div>
+                {row.date} • {row.start} to {row.end}
+              </div>
+              <button
+                type="button"
+                onClick={() => removeRow(idx)}
+                className="rounded-lg bg-rose-50 px-3 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100"
+              >
+                Remove
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AvailabilityModeSelector({
+  mode,
+  onChange,
+  recurringContent,
+  specificContent,
+}: {
+  mode: "recurring" | "specific";
+  onChange: (next: "recurring" | "specific") => void;
+  recurringContent: React.ReactNode;
+  specificContent: React.ReactNode;
+}) {
+  const Item = ({
+    value,
+    title,
+    subtitle,
+    children,
+  }: {
+    value: "recurring" | "specific";
+    title: string;
+    subtitle: string;
+    children: React.ReactNode;
+  }) => {
+    const selected = mode === value;
+
+    return (
+      <div className="overflow-hidden rounded-2xl border border-zinc-200">
+        <button
+          type="button"
+          onClick={() => onChange(value)}
+          className={cx(
+            "flex w-full items-center justify-between px-4 py-3 text-left",
+            selected ? "bg-zinc-900 text-white" : "bg-white text-zinc-900"
+          )}
+        >
+          <div>
+            <div className="text-sm font-semibold">{title}</div>
+            <div
+              className={cx(
+                "text-xs",
+                selected ? "text-zinc-200" : "text-zinc-500"
+              )}
+            >
+              {subtitle}
+            </div>
+          </div>
+          <div className="text-lg leading-none">{selected ? "−" : "+"}</div>
+        </button>
+
+        {selected && <div className="bg-white p-4">{children}</div>}
+      </div>
+    );
+  };
+
+  return (
+    <div className="grid gap-3">
+      <div>
+        <div className="text-sm font-semibold">Availability mode</div>
+        <div className="mt-1 text-xs text-zinc-500">
+          Choose one option. The selected option expands below.
+        </div>
+      </div>
+
+      <Item
+        value="recurring"
+        title="Recurring weekly"
+        subtitle="Same weekly schedule by weekday"
+      >
+        {recurringContent}
+      </Item>
+
+      <Item
+        value="specific"
+        title="Specific dates"
+        subtitle="One-off dates and times"
+      >
+        {specificContent}
+      </Item>
+    </div>
+  );
+}
+
 function HostPage({
   onCreated,
   user,
@@ -1298,6 +1530,8 @@ function HostPage({
   const [availability, setAvailability] = useState<Availability>(
     cloneAvailability(DEFAULT_AVAILABILITY)
   );
+  const [availabilityMode, setAvailabilityMode] = useState<"recurring" | "specific">("recurring");
+  const [specificAvailability, setSpecificAvailability] = useState<SpecificAvailabilityRow[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -1423,15 +1657,60 @@ function HostPage({
         photo_url: photoUrl,
         difficulty,
         description: "",
-        availability,
+        availability:
+          availabilityMode === "recurring" ? availability : null,
       };
 
-      const { error } = await supabase.from("spots").insert(payload);
-
-      if (error) {
-        console.error("Insert error:", error);
-        setErrorMsg(error.message || "Failed to create listing.");
+      if (availabilityMode === "specific" && specificAvailability.length === 0) {
+        setErrorMsg("Please add at least one specific date and time.");
         return;
+      }
+
+      const { data: insertedSpot, error } = await supabase
+        .from("spots")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (error || !insertedSpot) {
+        console.error("Insert error:", error);
+        setErrorMsg(error?.message || "Failed to create listing.");
+        return;
+      }
+
+      const spotId = insertedSpot.id;
+
+      const timeWindowRows =
+        availabilityMode === "recurring"
+          ? days
+              .filter((day) => availability[day])
+              .map((day) => ({
+                spot_id: spotId,
+                source_type: "recurring" as const,
+                day_key: day,
+                specific_date: null,
+                start_time: availability[day]![0],
+                end_time: availability[day]![1],
+              }))
+          : specificAvailability.map((row) => ({
+              spot_id: spotId,
+              source_type: "specific" as const,
+              day_key: null,
+              specific_date: row.date,
+              start_time: row.start,
+              end_time: row.end,
+            }));
+
+      if (timeWindowRows.length > 0) {
+        const { error: windowError } = await supabase
+          .from("spot_time_windows")
+          .insert(timeWindowRows);
+
+        if (windowError) {
+          console.error("spot_time_windows insert error:", windowError);
+          setErrorMsg(windowError.message || "Listing created, but availability failed to save.");
+          return;
+        }
       }
 
       setSubmitted(true);
@@ -1444,6 +1723,8 @@ function HostPage({
       setPhotoPreview(null);
       setDifficulty("Easy");
       setAvailability(cloneAvailability(DEFAULT_AVAILABILITY));
+      setAvailabilityMode("recurring");
+      setSpecificAvailability([]);
 
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -1628,13 +1909,33 @@ function HostPage({
                 <option value="Hard">Hard</option>
               </select>
             </label>
-            <AvailabilityEditor
-              value={availability}
+            <AvailabilityModeSelector
+              mode={availabilityMode}
               onChange={(next) => {
                 setSubmitted(false);
                 setErrorMsg("");
-                setAvailability(next);
+                setAvailabilityMode(next);
               }}
+              recurringContent={
+                <RecurringAvailabilityEditor
+                  value={availability}
+                  onChange={(next) => {
+                    setSubmitted(false);
+                    setErrorMsg("");
+                    setAvailability(next);
+                  }}
+                />
+              }
+              specificContent={
+                <SpecificDatesEditor
+                  value={specificAvailability}
+                  onChange={(next) => {
+                    setSubmitted(false);
+                    setErrorMsg("");
+                    setSpecificAvailability(next);
+                  }}
+                />
+              }
             />
             <div className="rounded-2xl bg-zinc-50 border border-zinc-200 p-4 text-sm text-zinc-700">
               <div className="flex items-center gap-2 font-medium">
@@ -2338,12 +2639,14 @@ function MyListingsPage({
   const [editAvailability, setEditAvailability] = useState<Availability>(
     cloneAvailability(DEFAULT_AVAILABILITY)
   );
+  const [editAvailabilityMode, setEditAvailabilityMode] = useState<"recurring" | "specific">("recurring");
+  const [editSpecificAvailability, setEditSpecificAvailability] = useState<SpecificAvailabilityRow[]>([]);
   const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
   const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editErrorMsg, setEditErrorMsg] = useState("");
 
-  const openEditModal = (spot: Spot) => {
+  const openEditModal = async (spot: Spot) => {
     if (editPhotoPreview && editPhotoPreview.startsWith("blob:")) {
       URL.revokeObjectURL(editPhotoPreview);
     }
@@ -2355,11 +2658,49 @@ function MyListingsPage({
     setEditPriceDay(Number(spot.priceDay));
     setEditAddressHint(spot.addressHint || "");
     setEditDifficulty(spot.difficulty);
-    setEditAvailability(cloneAvailability(spot.availability));
     setEditPhotoFile(null);
     setEditPhotoPreview(spot.photo || null);
     setEditErrorMsg("");
     setEditSaving(false);
+
+    const supabase = createClient();
+    const { data: windowsData, error } = await supabase
+      .from("spot_time_windows")
+      .select("*")
+      .eq("spot_id", spot.id);
+
+    if (error) {
+      console.error("Failed to load spot time windows for edit:", error);
+      setEditAvailability(cloneAvailability(spot.availability));
+      setEditAvailabilityMode("recurring");
+      setEditSpecificAvailability([]);
+    } else {
+      const windows = (windowsData || []) as SpotTimeWindow[];
+      const recurring = windows.filter((w) => w.source_type === "recurring");
+      const specific = windows.filter((w) => w.source_type === "specific");
+
+      if (specific.length > 0) {
+        setEditAvailabilityMode("specific");
+        setEditSpecificAvailability(
+          specific.map((w) => ({
+            date: w.specific_date || "",
+            start: w.start_time,
+            end: w.end_time,
+          }))
+        );
+        setEditAvailability(cloneAvailability(DEFAULT_AVAILABILITY));
+      } else {
+        const nextAvailability = cloneAvailability(DEFAULT_AVAILABILITY);
+        for (const w of recurring) {
+          if (w.day_key) {
+            nextAvailability[w.day_key] = [w.start_time, w.end_time];
+          }
+        }
+        setEditAvailabilityMode("recurring");
+        setEditAvailability(nextAvailability);
+        setEditSpecificAvailability([]);
+      }
+    }
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -2379,6 +2720,8 @@ function MyListingsPage({
     setEditAddressHint("");
     setEditDifficulty("Easy");
     setEditAvailability(cloneAvailability(DEFAULT_AVAILABILITY));
+    setEditAvailabilityMode("recurring");
+    setEditSpecificAvailability([]);
     setEditPhotoFile(null);
     setEditPhotoPreview(null);
     setEditErrorMsg("");
@@ -2496,6 +2839,11 @@ function MyListingsPage({
           setEditErrorMsg("Failed to upload image.");
           return;
         }
+      
+        if (editAvailabilityMode === "specific" && editSpecificAvailability.length === 0) {
+        setEditErrorMsg("Please add at least one specific date and time.");
+        return;
+      }
 
         const { data: publicUrlData } = supabase.storage
           .from("spot-photos")
@@ -2514,7 +2862,8 @@ function MyListingsPage({
           address_hint: cleanAddressHint,
           difficulty: editDifficulty,
           photo_url: photoUrl,
-          availability: editAvailability,
+          availability:
+            editAvailabilityMode === "recurring" ? editAvailability : null,
         })
         .eq("id", editingSpot.id)
         .eq("owner_id", user.id);
@@ -2524,6 +2873,47 @@ function MyListingsPage({
         return;
       }
 
+      const { error: deleteWindowsError } = await supabase
+        .from("spot_time_windows")
+        .delete()
+        .eq("spot_id", editingSpot.id);
+
+      if (deleteWindowsError) {
+        setEditErrorMsg(deleteWindowsError.message || "Listing saved, but old availability could not be cleared.");
+        return;
+      }
+
+      const replacementRows =
+        editAvailabilityMode === "recurring"
+          ? days
+              .filter((day) => editAvailability[day])
+              .map((day) => ({
+                spot_id: editingSpot.id,
+                source_type: "recurring" as const,
+                day_key: day,
+                specific_date: null,
+                start_time: editAvailability[day]![0],
+                end_time: editAvailability[day]![1],
+              }))
+          : editSpecificAvailability.map((row) => ({
+              spot_id: editingSpot.id,
+              source_type: "specific" as const,
+              day_key: null,
+              specific_date: row.date,
+              start_time: row.start,
+              end_time: row.end,
+            }));
+
+      if (replacementRows.length > 0) {
+        const { error: insertWindowsError } = await supabase
+          .from("spot_time_windows")
+          .insert(replacementRows);
+
+        if (insertWindowsError) {
+          setEditErrorMsg(insertWindowsError.message || "Listing saved, but availability failed to save.");
+          return;
+        }
+      }
       await onRefresh();
       closeEditModal();
       onToast("Listing updated.");
@@ -2701,9 +3091,21 @@ function MyListingsPage({
                 </select>
               </label>
 
-              <AvailabilityEditor
-                value={editAvailability}
-                onChange={setEditAvailability}
+              <AvailabilityModeSelector
+                mode={editAvailabilityMode}
+                onChange={setEditAvailabilityMode}
+                recurringContent={
+                  <RecurringAvailabilityEditor
+                    value={editAvailability}
+                    onChange={setEditAvailability}
+                  />
+                }
+                specificContent={
+                  <SpecificDatesEditor
+                    value={editSpecificAvailability}
+                    onChange={setEditSpecificAvailability}
+                  />
+                }
               />
 
               <label className="grid gap-1">
@@ -3306,8 +3708,30 @@ export default function App() {
     if (!spot) return;
 
     const bookingDate = new Date().toISOString().slice(0, 10);
-    const dayKey = getDayKeyFromDate(bookingDate);
-    const bookingStartTime = spot.availability?.[dayKey]?.[0] || "09:00";
+  const proposeDeal = (amount: number) => {
+    const spot = spots[0];
+    if (!spot) return;
+
+    const bookingDate = new Date().toISOString().slice(0, 10);
+    const bookingStartTime = "09:00";
+    const startAt = combineDateAndTime(bookingDate, bookingStartTime);
+
+    const subtotal = amount;
+    const tax = subtotal * (TAX.gst + TAX.qst);
+    const total = subtotal + tax;
+
+    setCheckoutPayload({
+      spot,
+      bookingDate,
+      bookingStartTime,
+      durationHours: 1,
+      subtotal,
+      tax,
+      total,
+      startAt,
+    });
+    setCheckoutOpen(true);
+  };
     const startAt = combineDateAndTime(bookingDate, bookingStartTime);
 
     const subtotal = amount;
