@@ -804,13 +804,6 @@ function SpotDetail({
   const tax = subtotal * (TAX.gst + TAX.qst);
   const total = subtotal + tax;
 
-  const timeSlots = useMemo(() => {
-    if (!av) return [];
-    const start = av[0];
-    const end = av[1];
-    return generateTimeSlots(start, end, 30);
-  }, [av]);
-
   useEffect(() => {
     if (timeSlots.length === 0) {
       setBookingStartTime("");
@@ -2823,6 +2816,11 @@ function MyListingsPage({
         return;
       }
 
+      if (editAvailabilityMode === "specific" && editSpecificAvailability.length === 0) {
+        setEditErrorMsg("Please add at least one specific date and time.");
+        return;
+      }
+
       const supabase = createClient();
 
       let photoUrl = editingSpot.photo || null;
@@ -2839,11 +2837,6 @@ function MyListingsPage({
           setEditErrorMsg("Failed to upload image.");
           return;
         }
-      
-        if (editAvailabilityMode === "specific" && editSpecificAvailability.length === 0) {
-        setEditErrorMsg("Please add at least one specific date and time.");
-        return;
-      }
 
         const { data: publicUrlData } = supabase.storage
           .from("spot-photos")
@@ -3708,30 +3701,7 @@ export default function App() {
     if (!spot) return;
 
     const bookingDate = new Date().toISOString().slice(0, 10);
-  const proposeDeal = (amount: number) => {
-    const spot = spots[0];
-    if (!spot) return;
-
-    const bookingDate = new Date().toISOString().slice(0, 10);
     const bookingStartTime = "09:00";
-    const startAt = combineDateAndTime(bookingDate, bookingStartTime);
-
-    const subtotal = amount;
-    const tax = subtotal * (TAX.gst + TAX.qst);
-    const total = subtotal + tax;
-
-    setCheckoutPayload({
-      spot,
-      bookingDate,
-      bookingStartTime,
-      durationHours: 1,
-      subtotal,
-      tax,
-      total,
-      startAt,
-    });
-    setCheckoutOpen(true);
-  };
     const startAt = combineDateAndTime(bookingDate, bookingStartTime);
 
     const subtotal = amount;
