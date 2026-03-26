@@ -1270,7 +1270,7 @@ function RecurringAvailabilityEditor({
   };
 
   return (
-    <div className="grid gap-3">
+    <div className="grid w-full gap-3">
       {days.map((day) => {
         const range = value[day];
         const enabled = !!range;
@@ -1278,10 +1278,10 @@ function RecurringAvailabilityEditor({
         return (
           <div
             key={day}
-            className="rounded-2xl border border-zinc-200 p-3"
+            className="w-full rounded-2xl border border-zinc-200 p-3"
           >
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <label className="inline-flex items-center gap-2 text-sm font-medium">
+            <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <label className="inline-flex min-w-0 items-center gap-2 text-sm font-medium">
                 <input
                   type="checkbox"
                   checked={enabled}
@@ -1291,19 +1291,21 @@ function RecurringAvailabilityEditor({
               </label>
 
               {enabled ? (
-                <div className="flex items-center gap-2">
+                <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_1fr] lg:w-auto lg:min-w-[260px]">
                   <input
                     type="time"
                     value={range?.[0] ?? "09:00"}
                     onChange={(e) => updateDayTime(day, 0, e.target.value)}
-                    className="rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
                   />
-                  <span className="text-sm text-zinc-500">to</span>
+                  <span className="self-center text-center text-sm text-zinc-500">
+                    to
+                  </span>
                   <input
                     type="time"
                     value={range?.[1] ?? "17:00"}
                     onChange={(e) => updateDayTime(day, 1, e.target.value)}
-                    className="rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
                   />
                 </div>
               ) : (
@@ -1344,26 +1346,26 @@ function SpecificDatesEditor({
   };
 
   return (
-    <div className="grid gap-3">
-      <div className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+    <div className="grid w-full gap-3">
+      <div className="grid w-full grid-cols-1 gap-3 lg:grid-cols-[1fr_1fr_1fr_auto]">
         <input
           type="date"
           value={date}
           min={new Date().toISOString().slice(0, 10)}
           onChange={(e) => setDate(e.target.value)}
-          className="rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
         />
         <input
           type="time"
           value={start}
           onChange={(e) => setStart(e.target.value)}
-          className="rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
         />
         <input
           type="time"
           value={end}
           onChange={(e) => setEnd(e.target.value)}
-          className="rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
         />
         <button
           type="button"
@@ -1375,15 +1377,17 @@ function SpecificDatesEditor({
       </div>
 
       {value.length === 0 ? (
-        <div className="text-xs text-zinc-500">No non-recurring dates added yet.</div>
+        <div className="text-xs text-zinc-500">
+          No non-recurring dates added yet.
+        </div>
       ) : (
-        <div className="grid gap-2">
+        <div className="grid w-full gap-2">
           {value.map((row, idx) => (
             <div
               key={`${row.date}-${row.start}-${row.end}-${idx}`}
-              className="flex items-center justify-between rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+              className="flex w-full flex-col gap-2 rounded-2xl border border-zinc-200 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
             >
-              <div>
+              <div className="min-w-0 break-words">
                 {row.date} • {row.start} to {row.end}
               </div>
               <button
@@ -1429,13 +1433,13 @@ function AvailabilityModeSelector({
       <div className="overflow-hidden rounded-2xl border border-zinc-200">
         <button
           type="button"
-          onClick={() => onChange(selected ? value : value)}
+          onClick={() => onChange(value)}
           className={cx(
             "flex w-full items-center justify-between px-4 py-3 text-left",
             selected ? "bg-zinc-900 text-white" : "bg-white text-zinc-900"
           )}
         >
-          <div>
+          <div className="min-w-0">
             <div className="text-sm font-semibold">{title}</div>
             <div
               className={cx(
@@ -1446,38 +1450,41 @@ function AvailabilityModeSelector({
               {subtitle}
             </div>
           </div>
-          <div className="text-lg leading-none">{selected ? "−" : "+"}</div>
+          <div className="ml-3 shrink-0 text-lg leading-none">
+            {selected ? "−" : "+"}
+          </div>
         </button>
 
-        {selected && <div className="bg-white p-4">{children}</div>}
+        {selected && (
+          <div className="w-full overflow-hidden bg-white p-4">
+            {children}
+          </div>
+        )}
       </div>
     );
   };
 
   return (
-    <div className="rounded-2xl border border-zinc-200 p-4">
-      <div className="text-sm font-semibold">Availability mode</div>
-      <div className="mt-1 text-xs text-zinc-500">
-        Choose one option below.
-      </div>
+    <div className="grid gap-3">
+      <label className="grid gap-1">
+        <span className="text-xs text-zinc-500">Availability mode</span>
+      </label>
 
-      <div className="mt-4 grid gap-3">
-        <Item
-          value="recurring"
-          title="Recurring weekly"
-          subtitle="Same weekly schedule by weekday"
-        >
-          {recurringContent}
-        </Item>
+      <Item
+        value="recurring"
+        title="Recurring weekly"
+        subtitle="Same weekly schedule by weekday"
+      >
+        {recurringContent}
+      </Item>
 
-        <Item
-          value="specific"
-          title="Non-recurring"
-          subtitle="Specific dates and times"
-        >
-          {specificContent}
-        </Item>
-      </div>
+      <Item
+        value="specific"
+        title="Non-recurring"
+        subtitle="Specific dates and times"
+      >
+        {specificContent}
+      </Item>
     </div>
   );
 }
@@ -1891,33 +1898,13 @@ function HostPage({
                 setAvailabilityMode(next);
               }}
               recurringContent={
-                <AvailabilityModeSelector
-                  mode={availabilityMode}
+                <RecurringAvailabilityEditor
+                  value={availability}
                   onChange={(next) => {
                     setSubmitted(false);
                     setErrorMsg("");
-                    setAvailabilityMode(next);
+                    setAvailability(next);
                   }}
-                  recurringContent={
-                    <RecurringAvailabilityEditor
-                      value={availability}
-                      onChange={(next) => {
-                        setSubmitted(false);
-                        setErrorMsg("");
-                        setAvailability(next);
-                      }}
-                    />
-                  }
-                  specificContent={
-                    <SpecificDatesEditor
-                      value={specificAvailability}
-                      onChange={(next) => {
-                        setSubmitted(false);
-                        setErrorMsg("");
-                        setSpecificAvailability(next);
-                      }}
-                    />
-                  }
                 />
               }
               specificContent={
