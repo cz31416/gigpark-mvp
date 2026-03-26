@@ -1258,11 +1258,7 @@ function RecurringAvailabilityEditor({
     });
   };
 
-  const updateDayTime = (
-    day: DayKey,
-    index: 0 | 1,
-    nextTime: string
-  ) => {
+  const updateDayTime = (day: DayKey, index: 0 | 1, nextTime: string) => {
     const current = value[day] ?? ["09:00", "17:00"];
     const nextRange: [string, string] =
       index === 0 ? [nextTime, current[1]] : [current[0], nextTime];
@@ -1274,56 +1270,49 @@ function RecurringAvailabilityEditor({
   };
 
   return (
-    <div className="rounded-2xl border border-zinc-200 p-4">
-      <div className="text-sm font-semibold">Availability</div>
-      <div className="mt-1 text-xs text-zinc-500">
-        Choose which days and times this spot can be booked
-      </div>
+    <div className="grid gap-3">
+      {days.map((day) => {
+        const range = value[day];
+        const enabled = !!range;
 
-      <div className="mt-4 grid gap-3">
-        {days.map((day) => {
-          const range = value[day];
-          const enabled = !!range;
+        return (
+          <div
+            key={day}
+            className="rounded-2xl border border-zinc-200 p-3"
+          >
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <label className="inline-flex items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={(e) => updateDayEnabled(day, e.target.checked)}
+                />
+                <span>{labels[day]}</span>
+              </label>
 
-          return (
-            <div
-              key={day}
-              className="rounded-2xl border border-zinc-200 p-3"
-            >
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <label className="inline-flex items-center gap-2 text-sm font-medium">
+              {enabled ? (
+                <div className="flex items-center gap-2">
                   <input
-                    type="checkbox"
-                    checked={enabled}
-                    onChange={(e) => updateDayEnabled(day, e.target.checked)}
+                    type="time"
+                    value={range?.[0] ?? "09:00"}
+                    onChange={(e) => updateDayTime(day, 0, e.target.value)}
+                    className="rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
                   />
-                  <span>{labels[day]}</span>
-                </label>
-
-                {enabled ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="time"
-                      value={range?.[0] ?? "09:00"}
-                      onChange={(e) => updateDayTime(day, 0, e.target.value)}
-                      className="rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-                    />
-                    <span className="text-sm text-zinc-500">to</span>
-                    <input
-                      type="time"
-                      value={range?.[1] ?? "17:00"}
-                      onChange={(e) => updateDayTime(day, 1, e.target.value)}
-                      className="rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-                    />
-                  </div>
-                ) : (
-                  <div className="text-xs text-zinc-500">Unavailable</div>
-                )}
-              </div>
+                  <span className="text-sm text-zinc-500">to</span>
+                  <input
+                    type="time"
+                    value={range?.[1] ?? "17:00"}
+                    onChange={(e) => updateDayTime(day, 1, e.target.value)}
+                    className="rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                  />
+                </div>
+              ) : (
+                <div className="text-xs text-zinc-500">Unavailable</div>
+              )}
             </div>
-          );
-        })}
-      </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1343,10 +1332,7 @@ function SpecificDatesEditor({
     if (!date || !start || !end) return;
     if (start >= end) return;
 
-    onChange([
-      ...value,
-      { date, start, end },
-    ]);
+    onChange([...value, { date, start, end }]);
 
     setDate("");
     setStart("09:00");
@@ -1358,13 +1344,8 @@ function SpecificDatesEditor({
   };
 
   return (
-    <div className="rounded-2xl border border-zinc-200 p-4">
-      <div className="text-sm font-semibold">Specific dates</div>
-      <div className="mt-1 text-xs text-zinc-500">
-        Add one-off availability windows for exact dates
-      </div>
-
-      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+    <div className="grid gap-3">
+      <div className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
         <input
           type="date"
           value={date}
@@ -1393,11 +1374,11 @@ function SpecificDatesEditor({
         </button>
       </div>
 
-      <div className="mt-4 grid gap-2">
-        {value.length === 0 ? (
-          <div className="text-xs text-zinc-500">No specific dates added.</div>
-        ) : (
-          value.map((row, idx) => (
+      {value.length === 0 ? (
+        <div className="text-xs text-zinc-500">No non-recurring dates added yet.</div>
+      ) : (
+        <div className="grid gap-2">
+          {value.map((row, idx) => (
             <div
               key={`${row.date}-${row.start}-${row.end}-${idx}`}
               className="flex items-center justify-between rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
@@ -1413,9 +1394,9 @@ function SpecificDatesEditor({
                 Remove
               </button>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1448,7 +1429,7 @@ function AvailabilityModeSelector({
       <div className="overflow-hidden rounded-2xl border border-zinc-200">
         <button
           type="button"
-          onClick={() => onChange(value)}
+          onClick={() => onChange(selected ? value : value)}
           className={cx(
             "flex w-full items-center justify-between px-4 py-3 text-left",
             selected ? "bg-zinc-900 text-white" : "bg-white text-zinc-900"
@@ -1474,29 +1455,29 @@ function AvailabilityModeSelector({
   };
 
   return (
-    <div className="grid gap-3">
-      <div>
-        <div className="text-sm font-semibold">Availability mode</div>
-        <div className="mt-1 text-xs text-zinc-500">
-          Choose one option. The selected option expands below.
-        </div>
+    <div className="rounded-2xl border border-zinc-200 p-4">
+      <div className="text-sm font-semibold">Availability mode</div>
+      <div className="mt-1 text-xs text-zinc-500">
+        Choose one option below.
       </div>
 
-      <Item
-        value="recurring"
-        title="Recurring weekly"
-        subtitle="Same weekly schedule by weekday"
-      >
-        {recurringContent}
-      </Item>
+      <div className="mt-4 grid gap-3">
+        <Item
+          value="recurring"
+          title="Recurring weekly"
+          subtitle="Same weekly schedule by weekday"
+        >
+          {recurringContent}
+        </Item>
 
-      <Item
-        value="specific"
-        title="Specific dates"
-        subtitle="One-off dates and times"
-      >
-        {specificContent}
-      </Item>
+        <Item
+          value="specific"
+          title="Non-recurring"
+          subtitle="Specific dates and times"
+        >
+          {specificContent}
+        </Item>
+      </div>
     </div>
   );
 }
