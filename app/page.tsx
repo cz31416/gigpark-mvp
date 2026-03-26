@@ -45,7 +45,32 @@ const DAY_TO_JS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 
 type DayKey = keyof typeof DAY_TO_JS;
 
-type Availability = Record<DayKey, [string, string] | null>;
+const DEFAULT_AVAILABILITY: Availability = {
+  mon: ["09:00", "17:00"],
+  tue: ["09:00", "17:00"],
+  wed: ["09:00", "17:00"],
+  thu: ["09:00", "17:00"],
+  fri: ["09:00", "17:00"],
+  sat: ["10:00", "16:00"],
+  sun: null,
+};
+
+function cloneAvailability(src?: Availability | null): Availability {
+  return {
+    mon: src?.mon ? [...src.mon] as [string, string] : null,
+    tue: src?.tue ? [...src.tue] as [string, string] : null,
+    wed: src?.wed ? [...src.wed] as [string, string] : null,
+    thu: src?.thu ? [...src.thu] as [string, string] : null,
+    fri: src?.fri ? [...src.fri] as [string, string] : null,
+    sat: src?.sat ? [...src.sat] as [string, string] : null,
+    sun: src?.sun ? [...src.sun] as [string, string] : null,
+  };
+}
+
+function getDayKeyFromDate(date: string): DayKey {
+  const jsDay = new Date(`${date}T12:00:00`).getDay();
+  return (Object.keys(DAY_TO_JS) as DayKey[]).find((k) => DAY_TO_JS[k] === jsDay) ?? "mon";
+}
 
 type Spot = {
   id: string;
@@ -717,7 +742,8 @@ function SpotDetail({
   >([]);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
 
-  const av = spot.availability?.mon;
+  const selectedDayKey = getDayKeyFromDate(bookingDate);
+  const av = spot.availability?.[selectedDayKey] ?? null;
   const durationHours =
     duration === "1h" ? 1 :
     duration === "2h" ? 2 :
@@ -729,10 +755,22 @@ function SpotDetail({
   const total = subtotal + tax;
 
   const timeSlots = useMemo(() => {
-    const start = av?.[0] || "09:00";
-    const end = av?.[1] || "17:00";
+    if (!av) return [];
+    const start = av[0];
+    const end = av[1];
     return generateTimeSlots(start, end, 30);
   }, [av]);
+
+  useEffect(() => {
+    if (timeSlots.length === 0) {
+      setBookingStartTime("");
+      return;
+    }
+
+    if (!timeSlots.includes(bookingStartTime)) {
+      setBookingStartTime(timeSlots[0]);
+    }
+  }, [timeSlots, bookingStartTime]);
 
   useEffect(() => {
     const loadSpotBookings = async () => {
@@ -764,18 +802,22 @@ function SpotDetail({
     loadSpotBookings();
   }, [spot.id, bookingDate]);
 
-  const selectedStartAt = combineDateAndTime(bookingDate, bookingStartTime);
-  const selectedEndAt = new Date(
-    selectedStartAt.getTime() + durationHours * 60 * 60 * 1000
-  );
+  const selectedStartAt =
+    bookingStartTime ? combineDateAndTime(bookingDate, bookingStartTime) : null;
 
-  const selectedSlotUnavailable = hasTimeConflict(
-    selectedStartAt,
-    selectedEndAt,
-    spotBookings
-  );
+  const selectedEndAt = selectedStartAt
+    ? new Date(selectedStartAt.getTime() + durationHours * 60 * 60 * 1000)
+    : null;
+
+  const selectedSlotUnavailable =
+    !selectedStartAt ||
+    !selectedEndAt ||
+    hasTimeConflict(selectedStartAt, selectedEndAt, spotBookings);
 
   const handleBookNow = () => {
+    if (!av || !bookingStartTime || !selectedStartAt) {
+      return;
+    }
     if (!user) {
       onRequireLogin();
       return;
@@ -876,37 +918,44 @@ function SpotDetail({
 
             <div>
               <div className="text-xs text-zinc-500 mb-1">Choose start time</div>
-              <div className="grid grid-cols-3 gap-2">
-                {timeSlots.map((time) => {
-                  const candidateStart = combineDateAndTime(bookingDate, time);
-                  const candidateEnd = new Date(
-                    candidateStart.getTime() + durationHours * 60 * 60 * 1000
-                  );
-                  const unavailable = hasTimeConflict(
-                    candidateStart,
-                    candidateEnd,
-                    spotBookings
-                  );
 
-                  return (
-                    <button
-                      key={time}
-                      disabled={unavailable}
-                      onClick={() => setBookingStartTime(time)}
-                      className={cx(
-                        "px-3 py-2 rounded-xl text-sm",
-                        bookingStartTime === time && !unavailable
-                          ? "bg-zinc-900 text-white"
-                          : unavailable
-                          ? "bg-zinc-100 text-zinc-400 cursor-not-allowed"
-                          : "bg-zinc-100 text-zinc-700"
-                      )}
-                    >
-                      {time}
-                    </button>
-                  );
-                })}
-              </div>
+              {!av ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  This spot is unavailable on the selected day.
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-2">
+                  {timeSlots.map((time) => {
+                    const candidateStart = combineDateAndTime(bookingDate, time);
+                    const candidateEnd = new Date(
+                      candidateStart.getTime() + durationHours * 60 * 60 * 1000
+                    );
+                    const unavailable = hasTimeConflict(
+                      candidateStart,
+                      candidateEnd,
+                      spotBookings
+                    );
+
+                    return (
+                      <button
+                        key={time}
+                        disabled={unavailable}
+                        onClick={() => setBookingStartTime(time)}
+                        className={cx(
+                          "px-3 py-2 rounded-xl text-sm",
+                          bookingStartTime === time && !unavailable
+                            ? "bg-zinc-900 text-white"
+                            : unavailable
+                            ? "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                            : "bg-zinc-100 text-zinc-700"
+                        )}
+                      >
+                        {time}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div>
@@ -943,9 +992,13 @@ function SpotDetail({
               <div className="mt-2 text-xs text-zinc-500">
                 {loadingAvailability
                   ? "Checking availability..."
+                  : !av
+                  ? "This spot is unavailable on that day."
                   : selectedSlotUnavailable
                   ? "That time is already booked."
-                  : `Starts: ${fmtDateTime(selectedStartAt)}`}
+                  : selectedStartAt
+                  ? `Starts: ${fmtDateTime(selectedStartAt)}`
+                  : "Choose a start time."}
               </div>
             </div>
 
@@ -1128,6 +1181,100 @@ function SearchPage({
   );
 }
 
+function AvailabilityEditor({
+  value,
+  onChange,
+}: {
+  value: Availability;
+  onChange: (next: Availability) => void;
+}) {
+  const labels: Record<DayKey, string> = {
+    mon: "Monday",
+    tue: "Tuesday",
+    wed: "Wednesday",
+    thu: "Thursday",
+    fri: "Friday",
+    sat: "Saturday",
+    sun: "Sunday",
+  };
+
+  const updateDayEnabled = (day: DayKey, enabled: boolean) => {
+    onChange({
+      ...value,
+      [day]: enabled ? (value[day] ?? ["09:00", "17:00"]) : null,
+    });
+  };
+
+  const updateDayTime = (
+    day: DayKey,
+    index: 0 | 1,
+    nextTime: string
+  ) => {
+    const current = value[day] ?? ["09:00", "17:00"];
+    const nextRange: [string, string] =
+      index === 0 ? [nextTime, current[1]] : [current[0], nextTime];
+
+    onChange({
+      ...value,
+      [day]: nextRange,
+    });
+  };
+
+  return (
+    <div className="rounded-2xl border border-zinc-200 p-4">
+      <div className="text-sm font-semibold">Availability</div>
+      <div className="mt-1 text-xs text-zinc-500">
+        Choose which days and times this spot can be booked
+      </div>
+
+      <div className="mt-4 grid gap-3">
+        {days.map((day) => {
+          const range = value[day];
+          const enabled = !!range;
+
+          return (
+            <div
+              key={day}
+              className="rounded-2xl border border-zinc-200 p-3"
+            >
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <label className="inline-flex items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(e) => updateDayEnabled(day, e.target.checked)}
+                  />
+                  <span>{labels[day]}</span>
+                </label>
+
+                {enabled ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="time"
+                      value={range?.[0] ?? "09:00"}
+                      onChange={(e) => updateDayTime(day, 0, e.target.value)}
+                      className="rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                    />
+                    <span className="text-sm text-zinc-500">to</span>
+                    <input
+                      type="time"
+                      value={range?.[1] ?? "17:00"}
+                      onChange={(e) => updateDayTime(day, 1, e.target.value)}
+                      className="rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                    />
+                  </div>
+                ) : (
+                  <div className="text-xs text-zinc-500">Unavailable</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function HostPage({
   onCreated,
   user,
@@ -1147,6 +1294,9 @@ function HostPage({
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [difficulty, setDifficulty] = useState<Spot["difficulty"]>("Easy");
+  const [availability, setAvailability] = useState<Availability>(
+    cloneAvailability(DEFAULT_AVAILABILITY)
+  );
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -1272,6 +1422,7 @@ function HostPage({
         photo_url: photoUrl,
         difficulty,
         description: "",
+        availability,
       };
 
       const { error } = await supabase.from("spots").insert(payload);
@@ -1291,6 +1442,7 @@ function HostPage({
       setPhotoFile(null);
       setPhotoPreview(null);
       setDifficulty("Easy");
+      setAvailability(cloneAvailability(DEFAULT_AVAILABILITY));
 
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -1475,7 +1627,14 @@ function HostPage({
                 <option value="Hard">Hard</option>
               </select>
             </label>
-
+            <AvailabilityEditor
+              value={availability}
+              onChange={(next) => {
+                setSubmitted(false);
+                setErrorMsg("");
+                setAvailability(next);
+              }}
+            />
             <div className="rounded-2xl bg-zinc-50 border border-zinc-200 p-4 text-sm text-zinc-700">
               <div className="flex items-center gap-2 font-medium">
                 <Home className="h-4 w-4" /> Owner-authorized only
@@ -2175,6 +2334,9 @@ function MyListingsPage({
   const [editPriceDay, setEditPriceDay] = useState(20);
   const [editAddressHint, setEditAddressHint] = useState("");
   const [editDifficulty, setEditDifficulty] = useState<Spot["difficulty"]>("Easy");
+  const [editAvailability, setEditAvailability] = useState<Availability>(
+    cloneAvailability(DEFAULT_AVAILABILITY)
+  );
   const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
   const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
@@ -2192,6 +2354,7 @@ function MyListingsPage({
     setEditPriceDay(Number(spot.priceDay));
     setEditAddressHint(spot.addressHint || "");
     setEditDifficulty(spot.difficulty);
+    setEditAvailability(cloneAvailability(spot.availability));
     setEditPhotoFile(null);
     setEditPhotoPreview(spot.photo || null);
     setEditErrorMsg("");
@@ -2214,6 +2377,7 @@ function MyListingsPage({
     setEditPriceDay(20);
     setEditAddressHint("");
     setEditDifficulty("Easy");
+    setEditAvailability(cloneAvailability(DEFAULT_AVAILABILITY));
     setEditPhotoFile(null);
     setEditPhotoPreview(null);
     setEditErrorMsg("");
@@ -2349,6 +2513,7 @@ function MyListingsPage({
           address_hint: cleanAddressHint,
           difficulty: editDifficulty,
           photo_url: photoUrl,
+          availability: editAvailability,
         })
         .eq("id", editingSpot.id)
         .eq("owner_id", user.id);
@@ -2534,6 +2699,11 @@ function MyListingsPage({
                   <option value="Hard">Hard</option>
                 </select>
               </label>
+
+              <AvailabilityEditor
+                value={editAvailability}
+                onChange={setEditAvailability}
+              />
 
               <label className="grid gap-1">
                 <span className="text-xs text-zinc-500">Photo (optional)</span>
@@ -2825,15 +2995,7 @@ export default function App() {
     addressHint: s.address_hint ?? "",
     difficulty: s.difficulty ?? "Easy",
     description: s.description ?? "",
-    availability: s.availability ?? {
-      mon: ["09:00", "17:00"],
-      tue: ["09:00", "17:00"],
-      wed: ["09:00", "17:00"],
-      thu: ["09:00", "17:00"],
-      fri: ["09:00", "17:00"],
-      sat: ["10:00", "16:00"],
-      sun: null,
-    },
+    availability: cloneAvailability(s.availability ?? DEFAULT_AVAILABILITY),
     host: { name: "Host", rating: 4.8, reviews: 0 },
     features: s.features ?? [],
     photo: s.photo_url ?? null,
@@ -3143,7 +3305,13 @@ export default function App() {
     if (!spot) return;
 
     const bookingDate = new Date().toISOString().slice(0, 10);
-    const bookingStartTime = spot.availability?.mon?.[0] || "09:00";
+  const proposeDeal = (amount: number) => {
+    const spot = spots[0];
+    if (!spot) return;
+
+    const bookingDate = new Date().toISOString().slice(0, 10);
+    const dayKey = getDayKeyFromDate(bookingDate);
+    const bookingStartTime = spot.availability?.[dayKey]?.[0] || "09:00";
     const startAt = combineDateAndTime(bookingDate, bookingStartTime);
 
     const subtotal = amount;
@@ -3325,7 +3493,7 @@ export default function App() {
           onReview={leaveReview}
         />
       )}
-      
+
 
       {view === "profile" && (
         <ProfilePage
