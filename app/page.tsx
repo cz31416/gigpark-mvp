@@ -1292,50 +1292,70 @@ function AvailabilityRulesEditor({
       <label className="grid gap-1">
         <span className="text-xs text-zinc-500">Availability</span>
         <span className="text-xs text-zinc-500">
-          Add a date, time range, and optional repeat rule.
+          Add a date, time range, and repeat rule.
         </span>
       </label>
 
-      <div className="grid gap-3 rounded-2xl border border-zinc-200 p-4 lg:grid-cols-[1.1fr_1fr_1fr_1fr_auto]">
-        <input
-          type="date"
-          value={date}
-          min={new Date().toISOString().slice(0, 10)}
-          onChange={(e) => setDate(e.target.value)}
-          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-        />
-        <input
-          type="time"
-          value={start}
-          onChange={(e) => setStart(e.target.value)}
-          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-        />
-        <input
-          type="time"
-          value={end}
-          onChange={(e) => setEnd(e.target.value)}
-          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-        />
-        <select
-          value={repeat}
-          onChange={(e) =>
-            setRepeat(e.target.value as AvailabilityRuleRow["repeat"])
-          }
-          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-        >
-          <option value="none">Does not repeat</option>
-          <option value="daily">Repeat daily</option>
-          <option value="weekly">Repeat weekly</option>
-          <option value="monthly">Repeat monthly</option>
-          <option value="yearly">Repeat yearly</option>
-        </select>
-        <button
-          type="button"
-          onClick={addRow}
-          className="rounded-xl bg-zinc-900 px-4 py-2 text-sm text-white hover:bg-zinc-800"
-        >
-          Add
-        </button>
+      <div className="rounded-2xl border border-zinc-200 p-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.15fr_1fr_1fr_1fr_auto]">
+          <div className="min-w-0">
+            <span className="mb-1 block text-xs text-zinc-500">Date</span>
+            <input
+              type="date"
+              value={date}
+              min={new Date().toISOString().slice(0, 10)}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full min-w-0 rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+            />
+          </div>
+
+          <div className="min-w-0">
+            <span className="mb-1 block text-xs text-zinc-500">Start time</span>
+            <input
+              type="time"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              className="w-full min-w-0 rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+            />
+          </div>
+
+          <div className="min-w-0">
+            <span className="mb-1 block text-xs text-zinc-500">End time</span>
+            <input
+              type="time"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              className="w-full min-w-0 rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+            />
+          </div>
+
+          <div className="min-w-0">
+            <span className="mb-1 block text-xs text-zinc-500">Repeat rule</span>
+            <select
+              value={repeat}
+              onChange={(e) =>
+                setRepeat(e.target.value as AvailabilityRuleRow["repeat"])
+              }
+              className="w-full min-w-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+            >
+              <option value="none">Does not repeat</option>
+              <option value="daily">Repeat daily</option>
+              <option value="weekly">Repeat weekly</option>
+              <option value="monthly">Repeat monthly</option>
+              <option value="yearly">Repeat yearly</option>
+            </select>
+          </div>
+
+          <div className="min-w-0 xl:self-end">
+            <button
+              type="button"
+              onClick={addRow}
+              className="w-full rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+            >
+              Add
+            </button>
+          </div>
+        </div>
       </div>
 
       {value.length === 0 ? (
@@ -1348,7 +1368,11 @@ function AvailabilityRulesEditor({
               className="flex flex-col gap-2 rounded-2xl border border-zinc-200 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="min-w-0 break-words">
-                {row.date} • {row.start} to {row.end} • {repeatLabel(row.repeat)}
+                <span className="font-medium">{row.date}</span>
+                {" • "}
+                {row.start} to {row.end}
+                {" • "}
+                <span className="text-zinc-600">{repeatLabel(row.repeat)}</span>
               </div>
               <button
                 type="button"
