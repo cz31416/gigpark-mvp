@@ -788,12 +788,23 @@ function SpotDetail({
   const timeSlots = useMemo(() => {
     if (activeRanges.length === 0) return [];
 
-    const merged = activeRanges.flatMap(([start, end]) =>
-      generateTimeSlots(start, end, 30)
-    );
+    const merged = activeRanges.flatMap(([start, end]) => {
+      const raw = generateTimeSlots(start, end, 30);
+
+      return raw.filter((time) => {
+        const candidateStart = combineDateAndTime(bookingDate, time);
+        const candidateEnd = new Date(
+          candidateStart.getTime() + durationHours * 60 * 60 * 1000
+        );
+        const windowEnd = combineDateAndTime(bookingDate, end);
+
+        return candidateEnd <= windowEnd;
+      });
+    });
 
     return Array.from(new Set(merged)).sort();
-  }, [activeRanges]);
+  }, [activeRanges, bookingDate, durationHours]);
+
   const durationHours =
     duration === "1h" ? 1 :
     duration === "2h" ? 2 :
@@ -1296,11 +1307,9 @@ function AvailabilityRulesEditor({
         </span>
       </label>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1fr]">
-
-        {/* LEFT: Date + Repeat stacked */}
-        <div className="grid gap-3 min-w-0">
-          <div>
+      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="min-w-0">
             <span className="mb-1 block text-xs text-zinc-500">Date</span>
             <input
               type="date"
@@ -1311,16 +1320,35 @@ function AvailabilityRulesEditor({
             />
           </div>
 
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-            <span className="mb-2 block text-xs text-zinc-500">Repeat rule</span>
+          <div className="min-w-0">
+            <span className="mb-1 block text-xs text-zinc-500">Start time</span>
+            <input
+              type="time"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+            />
+          </div>
 
-            <div className="flex items-center gap-2">
+          <div className="min-w-0">
+            <span className="mb-1 block text-xs text-zinc-500">End time</span>
+            <input
+              type="time"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+            />
+          </div>
+
+          <div className="min-w-0 md:col-span-3">
+            <span className="mb-1 block text-xs text-zinc-500">Repeat rule</span>
+            <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
               <select
                 value={repeat}
                 onChange={(e) =>
                   setRepeat(e.target.value as AvailabilityRuleRow["repeat"])
                 }
-                className="flex-1 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
               >
                 <option value="none">One-time only</option>
                 <option value="daily">Daily</option>
@@ -1339,29 +1367,6 @@ function AvailabilityRulesEditor({
             </div>
           </div>
         </div>
-
-        {/* MIDDLE: Start time */}
-        <div className="min-w-0">
-          <span className="mb-1 block text-xs text-zinc-500">Start time</span>
-          <input
-            type="time"
-            value={start}
-            onChange={(e) => setStart(e.target.value)}
-            className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-          />
-        </div>
-
-        {/* RIGHT: End time */}
-        <div className="min-w-0">
-          <span className="mb-1 block text-xs text-zinc-500">End time</span>
-          <input
-            type="time"
-            value={end}
-            onChange={(e) => setEnd(e.target.value)}
-            className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-          />
-        </div>
-
       </div>
 
       {value.length === 0 ? (
