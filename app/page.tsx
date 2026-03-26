@@ -44,6 +44,7 @@ const days: DayKey[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const DAY_TO_JS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 
 type DayKey = keyof typeof DAY_TO_JS;
+type Availability = Record<DayKey, [string, string] | null>;
 
 const DEFAULT_AVAILABILITY: Availability = {
   mon: ["09:00", "17:00"],
@@ -3300,11 +3301,6 @@ export default function App() {
     setTimeout(() => setToast(null), 2800);
   };
 
-  const proposeDeal = (amount: number) => {
-    const spot = spots[0];
-    if (!spot) return;
-
-    const bookingDate = new Date().toISOString().slice(0, 10);
   const proposeDeal = (amount: number) => {
     const spot = spots[0];
     if (!spot) return;
