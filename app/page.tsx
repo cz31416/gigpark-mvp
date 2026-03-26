@@ -1311,15 +1311,16 @@ function AvailabilityRulesEditor({
             />
           </div>
 
-          <div>
-            <span className="mb-1 block text-xs text-zinc-500">Repeat rule</span>
-            <div className="flex gap-2">
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+            <span className="mb-2 block text-xs text-zinc-500">Repeat rule</span>
+
+            <div className="flex items-center gap-2">
               <select
                 value={repeat}
                 onChange={(e) =>
                   setRepeat(e.target.value as AvailabilityRuleRow["repeat"])
                 }
-                className="flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                className="flex-1 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
               >
                 <option value="none">One-time only</option>
                 <option value="daily">Daily</option>
