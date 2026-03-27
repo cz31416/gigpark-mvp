@@ -785,6 +785,12 @@ function SpotDetail({
 
   const hasAvailability = activeRanges.length > 0;
 
+  const durationHours =
+    duration === "1h" ? 1 :
+    duration === "2h" ? 2 :
+    duration === "4h" ? 4 :
+    duration === "8h" ? 8 : 24;
+
   const timeSlots = useMemo(() => {
     if (activeRanges.length === 0) return [];
 
@@ -804,12 +810,6 @@ function SpotDetail({
 
     return Array.from(new Set(merged)).sort();
   }, [activeRanges, bookingDate, durationHours]);
-
-  const durationHours =
-    duration === "1h" ? 1 :
-    duration === "2h" ? 2 :
-    duration === "4h" ? 4 :
-    duration === "8h" ? 8 : 24;
 
   const subtotal = spot.priceHour * durationHours;
   const tax = subtotal * (TAX.gst + TAX.qst);
@@ -1342,7 +1342,7 @@ function AvailabilityRulesEditor({
 
           <div className="min-w-0 md:col-span-3">
             <span className="mb-1 block text-xs text-zinc-500">Repeat rule</span>
-            <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+            <div className="flex flex-wrap items-center gap-2">
               <select
                 value={repeat}
                 onChange={(e) =>
