@@ -102,6 +102,7 @@ type SpotTimeWindow = {
   start_time: string;
   end_time: string;
   repeat_rule: "none" | "daily" | "weekly" | "monthly" | "yearly";
+  source_type: "specific" | "recurring";
   created_at?: string;
 };
 
@@ -1572,6 +1573,7 @@ function HostPage({
         start_time: row.start,
         end_time: row.end,
         repeat_rule: row.repeat,
+        source_type: row.repeat === "none" ? "specific" : "recurring",
       }));
 
       if (timeWindowRows.length > 0) {
@@ -2714,6 +2716,7 @@ function MyListingsPage({
         start_time: row.start,
         end_time: row.end,
         repeat_rule: row.repeat,
+        source_type: row.repeat === "none" ? "specific" : "recurring",
       }));
 
       if (replacementRows.length > 0) {
