@@ -386,6 +386,16 @@ function TopNav({
                     return;
                   }
 
+                  if (t.id === "my-listings" && user) {
+                    loadMyListings(user);
+                    loadHostBookings(user);
+                  }
+
+                  if (t.id === "chat" && user) {
+                    loadBookings(user);
+                    loadHostBookings(user);
+                  }
+
                   setView(t.id);
                 }}
                 className={cx(
@@ -1965,7 +1975,10 @@ function ChatPage({
 }) {
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const [threads, setThreads] = useState<Record<string, { from: string; side: "me" | "them"; text: string }[]>>({});
+  const [messagesByBooking, setMessagesByBooking] = useState<
+    Record<string, { id: string; sender_id: string; text: string; created_at: string }[]>
+  >({});
+  const [loadingMessages, setLoadingMessages] = useState(false);
 
   useEffect(() => {
     if (bookings.length === 0) {
@@ -1977,25 +1990,66 @@ function ChatPage({
       if (prev && bookings.some((b) => b.id === prev)) return prev;
       return bookings[0].id;
     });
+  }, [bookings]);
 
-    setThreads((prev) => {
-      const next = { ...prev };
+  useEffect(() => {
+    if (!user || bookings.length === 0) return;
 
-      for (const b of bookings) {
-        if (!next[b.id]) {
-          next[b.id] = [
-            {
-              from: "Host",
-              side: "them",
-              text: `Hi! Thanks for booking ${b.spot.title}. Message me here if you need arrival details.`,
-            },
-          ];
-        }
+    const supabase = createClient();
+
+    const loadMessages = async () => {
+      setLoadingMessages(true);
+
+      const bookingIds = bookings.map((b) => b.id);
+
+      const { data, error } = await supabase
+        .from("messages")
+        .select("id, booking_id, sender_id, text, created_at")
+        .in("booking_id", bookingIds)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Failed to load messages:", error);
+        setLoadingMessages(false);
+        return;
       }
 
-      return next;
-    });
-  }, [bookings]);
+      const grouped: Record<
+        string,
+        { id: string; sender_id: string; text: string; created_at: string }[]
+      > = {};
+
+      for (const row of data || []) {
+        if (!grouped[row.booking_id]) grouped[row.booking_id] = [];
+        grouped[row.booking_id].push({
+          id: row.id,
+          sender_id: row.sender_id,
+          text: row.text,
+          created_at: row.created_at,
+        });
+      }
+
+      setMessagesByBooking(grouped);
+      setLoadingMessages(false);
+    };
+
+    loadMessages();
+
+    const channel = supabase
+      .channel("messages-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "messages" },
+        () => {
+          loadMessages();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, bookings]);
 
   if (!user) {
     return (
@@ -2031,20 +2085,25 @@ function ChatPage({
   }
 
   const selectedBooking = bookings.find((b) => b.id === selectedBookingId) ?? bookings[0];
-  const messages = threads[selectedBooking.id] ?? [];
+  const messages = messagesByBooking[selectedBooking.id] ?? [];
   const hostName = selectedBooking.spot.host.name || "Host";
 
-  const send = () => {
+  const send = async () => {
     const text = draft.trim();
-    if (!text) return;
+    if (!text || !user) return;
 
-    setThreads((prev) => ({
-      ...prev,
-      [selectedBooking.id]: [
-        ...(prev[selectedBooking.id] ?? []),
-        { from: "You", side: "me", text },
-      ],
-    }));
+    const supabase = createClient();
+
+    const { error } = await supabase.from("messages").insert({
+      booking_id: selectedBooking.id,
+      sender_id: user.id,
+      text,
+    });
+
+    if (error) {
+      console.error("Send message error:", error);
+      return;
+    }
 
     setDraft("");
   };
@@ -2061,7 +2120,9 @@ function ChatPage({
           <div className="p-2">
             {bookings.map((b) => {
               const isActive = b.id === selectedBooking.id;
-              const preview = (threads[b.id]?.[threads[b.id]?.length - 1]?.text ?? "Open conversation");
+              const preview =
+                messagesByBooking[b.id]?.[messagesByBooking[b.id].length - 1]?.text ??
+                "Open conversation";
               const startAt = b.startAt instanceof Date ? b.startAt : new Date(b.startAt);
 
               return (
@@ -2114,18 +2175,29 @@ function ChatPage({
           </div>
 
           <div className="h-[360px] space-y-2 overflow-auto p-4">
-            {messages.map((m, idx) => (
-              <div key={idx} className={cx("flex", m.side === "me" ? "justify-end" : "justify-start")}>
+            {loadingMessages ? (
+              <div className="text-sm text-zinc-500">Loading messages...</div>
+            ) : messages.length === 0 ? (
+              <div className="text-sm text-zinc-500">No messages yet.</div>
+            ) : (
+              messages.map((m) => (
                 <div
-                  className={cx(
-                    "max-w-[78%] rounded-2xl px-3 py-2 text-sm",
-                    m.side === "me" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-800"
-                  )}
+                  key={m.id}
+                  className={cx("flex", m.sender_id === user.id ? "justify-end" : "justify-start")}
                 >
-                  {m.text}
+                  <div
+                    className={cx(
+                      "max-w-[78%] rounded-2xl px-3 py-2 text-sm",
+                      m.sender_id === user.id
+                        ? "bg-zinc-900 text-white"
+                        : "bg-zinc-100 text-zinc-800"
+                    )}
+                  >
+                    {m.text}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
 
           <div className="border-t border-zinc-200 p-4">
@@ -2143,9 +2215,6 @@ function ChatPage({
               >
                 Send
               </button>
-            </div>
-            <div className="mt-2 text-xs text-zinc-500">
-              MVP note: messages are currently session-based and not yet stored in the database.
             </div>
           </div>
         </div>
@@ -2905,68 +2974,6 @@ function MyListingsPage({
         )}
       </div>
 
-            <div className="mt-10">
-              <div className="text-lg font-semibold">Incoming bookings</div>
-              <div className="mt-1 text-sm text-zinc-600">
-                Bookings made on your listings
-              </div>
-
-              <div className="mt-4 grid gap-3">
-                {hostBookings.length === 0 ? (
-                  <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">
-                    No incoming bookings yet.
-                  </div>
-                ) : (
-                  hostBookings.map((b) => {
-                    const startAt =
-                      b.startAt instanceof Date ? b.startAt : new Date(b.startAt);
-
-                    return (
-                      <div
-                        key={b.id}
-                        className="rounded-3xl border border-zinc-200 bg-white p-5"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold truncate">
-                              {b.spot.title}
-                            </div>
-                            <div className="mt-1 text-xs text-zinc-600">
-                              {b.spot.area} • {fmtDateTime(startAt)} • {b.durationHours}h
-                            </div>
-                            <div className="mt-2 text-xs text-zinc-600">
-                              Renter: {b.renterName || "Unknown"}
-                              {b.renterEmail ? ` • ${b.renterEmail}` : ""}
-                            </div>
-                          </div>
-
-                          <Badge
-                            tone={
-                              b.status === "cancelled"
-                                ? "Bad"
-                                : b.status === "completed"
-                                ? "Neutral"
-                                : "Good"
-                            }
-                          >
-                            {b.status === "cancelled"
-                              ? "Cancelled"
-                              : b.status === "completed"
-                              ? "Completed"
-                              : "Confirmed"}
-                          </Badge>
-                        </div>
-
-                        <div className="mt-3 text-sm text-zinc-700">
-                          Total: <span className="font-semibold">{money(b.total)}</span>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-
                   <div className="mt-10">
                     <div className="text-lg font-semibold">Incoming bookings</div>
                     <div className="mt-1 text-sm text-zinc-600">
@@ -3411,6 +3418,25 @@ export default function App() {
   });
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
+    const chatBookings = useMemo(() => {
+      const byId = new Map<string, Booking>();
+
+      for (const b of bookings) {
+        byId.set(b.id, b);
+      }
+
+      for (const b of hostBookings) {
+        if (!byId.has(b.id)) {
+          byId.set(b.id, b);
+        }
+      }
+
+      return Array.from(byId.values()).sort((a, b) => {
+        const aTime = new Date(a.startAt instanceof Date ? a.startAt : a.startAt).getTime();
+        const bTime = new Date(b.startAt instanceof Date ? b.startAt : b.startAt).getTime();
+        return bTime - aTime;
+      });
+    }, [bookings, hostBookings]);
 
   const requireLoginFor = (targetView: View) => {
     setPostLoginView(targetView);
@@ -3649,8 +3675,7 @@ export default function App() {
         total,
         status,
         created_at,
-        spots (*),
-        profiles!bookings_renter_id_fkey (*)
+        spots (*)
       `)
       .order("start_at", { ascending: false });
 
@@ -3661,15 +3686,40 @@ export default function App() {
       return;
     }
 
-    const rows = (data || []) as HostBookingRow[];
+    const rows = (data || []) as BookingRow[];
 
-    const mapped = rows
+    const hostRows = rows.filter((row) => {
+      const relatedSpot = Array.isArray(row.spots) ? row.spots[0] : row.spots;
+      return !!relatedSpot && relatedSpot.owner_id === activeUser.id;
+    });
+
+    const renterIds = Array.from(
+      new Set(hostRows.map((row) => row.renter_id).filter(Boolean))
+    );
+
+    let profilesMap = new Map<string, ProfileRow>();
+
+    if (renterIds.length > 0) {
+      const { data: profileRows, error: profilesError } = await supabase
+        .from("profiles")
+        .select("*")
+        .in("id", renterIds);
+
+      if (profilesError) {
+        console.error("Failed to load renter profiles:", profilesError);
+      } else {
+        profilesMap = new Map(
+          ((profileRows || []) as ProfileRow[]).map((p) => [p.id, p])
+        );
+      }
+    }
+
+    const mapped = hostRows
       .map((row): (Booking & { renterName?: string; renterEmail?: string }) | null => {
         const relatedSpot = Array.isArray(row.spots) ? row.spots[0] : row.spots;
-        const relatedProfile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
-
         if (!relatedSpot) return null;
-        if (relatedSpot.owner_id !== activeUser.id) return null;
+
+        const renterProfile = profilesMap.get(row.renter_id);
 
         return {
           id: row.id,
@@ -3691,8 +3741,8 @@ export default function App() {
               : row.status === "completed"
               ? "completed"
               : "confirmed",
-          renterName: relatedProfile?.full_name ?? "",
-          renterEmail: relatedProfile?.email ?? "",
+          renterName: renterProfile?.full_name ?? "",
+          renterEmail: renterProfile?.email ?? "",
         };
       })
       .filter(
@@ -4008,7 +4058,9 @@ export default function App() {
     }
 
     await loadBookings(user);
+    await loadHostBookings(user);
     await loadSpots();
+    await loadMyListings(user);
     setToast("Booking cancelled");
     setTimeout(() => setToast(null), 2200);
   };
@@ -4037,6 +4089,17 @@ export default function App() {
         view={view === "detail" ? "search" : view}
         setView={(v) => {
           setSelected(null);
+
+          if (user && v === "my-listings") {
+            loadMyListings(user);
+            loadHostBookings(user);
+          }
+
+          if (user && v === "chat") {
+            loadBookings(user);
+            loadHostBookings(user);
+          }
+
           setView(v);
         }}
         user={user}
@@ -4134,7 +4197,7 @@ export default function App() {
       {view === "chat" && (
         <ChatPage
           user={user}
-          bookings={bookings}
+          bookings={chatBookings}
           onProposeDeal={proposeDeal}
           onOpenBooking={(b) => {
             setToast(`Opening booking: ${b.spot.title}`);
