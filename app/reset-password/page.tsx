@@ -13,29 +13,66 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     const supabase = createClient();
 
-    const handleRecoverySession = async () => {
-      const hash = window.location.hash;
-      const query = new URLSearchParams(hash.replace(/^#/, ""));
-      const type = query.get("type");
+    const initRecovery = async () => {
+        try {
+        const url = new URL(window.location.href);
+        const code = url.searchParams.get("code");
+        const typeFromQuery = url.searchParams.get("type");
 
-      if (type === "recovery") {
-        setReady(true);
-        return;
-      }
+        const hashParams = new URLSearchParams(
+            window.location.hash.replace(/^#/, "")
+        );
+        const typeFromHash = hashParams.get("type");
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+        if (code) {
+            const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-      if (session) {
-        setReady(true);
-      } else {
+            if (error) {
+            console.error("exchangeCodeForSession error:", error);
+            setMessage("This password reset link is invalid or has expired.");
+            return;
+            }
+
+            setReady(true);
+            return;
+        }
+
+        if (typeFromHash === "recovery" || typeFromQuery === "recovery") {
+            setReady(true);
+            return;
+        }
+
+        const {
+            data: { session },
+        } = await supabase.auth.getSession();
+
+        if (session) {
+            setReady(true);
+            return;
+        }
+
         setMessage("This password reset link is invalid or has expired.");
-      }
+        } catch (err) {
+        console.error("Recovery init error:", err);
+        setMessage("This password reset link is invalid or has expired.");
+        }
     };
 
-    handleRecoverySession();
-  }, []);
+    initRecovery();
+
+    const {
+        data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+        if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
+        setReady(true);
+        setMessage("");
+        }
+    });
+
+    return () => {
+        subscription.unsubscribe();
+    };
+    }, []);
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
