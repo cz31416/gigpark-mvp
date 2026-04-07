@@ -2967,8 +2967,70 @@ function MyListingsPage({
               </div>
             </div>
 
-            {editingSpot && (
-              <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+                  <div className="mt-10">
+                    <div className="text-lg font-semibold">Incoming bookings</div>
+                    <div className="mt-1 text-sm text-zinc-600">
+                      Bookings made on your listings
+                    </div>
+
+                    <div className="mt-4 grid gap-3">
+                      {hostBookings.length === 0 ? (
+                        <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">
+                          No incoming bookings yet.
+                        </div>
+                      ) : (
+                        hostBookings.map((b) => {
+                          const startAt =
+                            b.startAt instanceof Date ? b.startAt : new Date(b.startAt);
+
+                          return (
+                            <div
+                              key={b.id}
+                              className="rounded-3xl border border-zinc-200 bg-white p-5"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold truncate">
+                                    {b.spot.title}
+                                  </div>
+                                  <div className="mt-1 text-xs text-zinc-600">
+                                    {b.spot.area} • {fmtDateTime(startAt)} • {b.durationHours}h
+                                  </div>
+                                  <div className="mt-2 text-xs text-zinc-600">
+                                    Renter: {b.renterName || "Unknown"}
+                                    {b.renterEmail ? ` • ${b.renterEmail}` : ""}
+                                  </div>
+                                </div>
+
+                                <Badge
+                                  tone={
+                                    b.status === "cancelled"
+                                      ? "Bad"
+                                      : b.status === "completed"
+                                      ? "Neutral"
+                                      : "Good"
+                                  }
+                                >
+                                  {b.status === "cancelled"
+                                    ? "Cancelled"
+                                    : b.status === "completed"
+                                    ? "Completed"
+                                    : "Confirmed"}
+                                </Badge>
+                              </div>
+
+                              <div className="mt-3 text-sm text-zinc-700">
+                                Total: <span className="font-semibold">{money(b.total)}</span>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {editingSpot && (
+                    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
                 <div className="w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
             <div className="flex items-center justify-between">
               <div>
@@ -3858,26 +3920,42 @@ export default function App() {
       return;
     }
 
-    const { error } = await supabase.from("bookings").insert({
-      renter_id: user.id,
-      spot_id: p.spot.id,
-      start_at: new Date(p.startAt).toISOString(),
-      end_at: endAt.toISOString(),
-      subtotal: p.subtotal,
-      tax: p.tax,
-      total: p.total,
-      status: "confirmed",
-    });
+    const { data: insertedBooking, error } = await supabase
+      .from("bookings")
+      .insert({
+        renter_id: user.id,
+        spot_id: p.spot.id,
+        start_at: new Date(p.startAt).toISOString(),
+        end_at: endAt.toISOString(),
+        subtotal: p.subtotal,
+        tax: p.tax,
+        total: p.total,
+        status: "confirmed",
+      })
+      .select("id")
+      .single();
 
-    if (error) {
+    if (error || !insertedBooking) {
       console.error("Booking insert error:", error);
-      setToast(error.message || "Failed to confirm booking");
+      setToast(error?.message || "Failed to confirm booking");
       setTimeout(() => setToast(null), 2200);
       return;
     }
 
+    const { error: messageError } = await supabase.from("messages").insert({
+      booking_id: insertedBooking.id,
+      sender_id: user.id,
+      text: "Hi! I just booked this spot.",
+    });
+
+    if (messageError) {
+      console.error("Initial message insert error:", messageError);
+    }
+
     await loadBookings(user);
+    await loadHostBookings(user);
     await loadSpots();
+    await loadMyListings(user);
 
     setCheckoutOpen(false);
     setCheckoutPayload(null);
