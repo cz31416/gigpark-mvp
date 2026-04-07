@@ -1969,6 +1969,7 @@ function ChatPage({
     Record<string, { id: string; sender_id: string; text: string; created_at: string }[]>
   >({});
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [chatError, setChatError] = useState("");
 
   useEffect(() => {
     if (bookings.length === 0) {
@@ -2026,18 +2027,18 @@ function ChatPage({
     loadMessages();
 
     const channel = supabase
-      .channel("messages-realtime")
+      .channel(`messages-${user.id}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "messages" },
-        () => {
-          loadMessages();
+        async () => {
+          await loadMessages();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
   }, [user, bookings]);
 
@@ -2084,18 +2085,56 @@ function ChatPage({
 
     const supabase = createClient();
 
-    const { error } = await supabase.from("messages").insert({
-      booking_id: selectedBooking.id,
+    const optimisticId = `temp-${Date.now()}`;
+    const optimisticMessage = {
+      id: optimisticId,
       sender_id: user.id,
       text,
-    });
+      created_at: new Date().toISOString(),
+    };
+
+    setMessagesByBooking((prev) => ({
+      ...prev,
+      [selectedBooking.id]: [...(prev[selectedBooking.id] ?? []), optimisticMessage],
+    }));
+
+    setDraft("");
+
+    const { data, error } = await supabase
+      .from("messages")
+      .insert({
+        booking_id: selectedBooking.id,
+        sender_id: user.id,
+        text,
+      })
+      .select("id, booking_id, sender_id, text, created_at")
+      .single();
 
     if (error) {
       console.error("Send message error:", error);
+
+      setMessagesByBooking((prev) => ({
+        ...prev,
+        [selectedBooking.id]: (prev[selectedBooking.id] ?? []).filter(
+          (m) => m.id !== optimisticId
+        ),
+      }));
+
+      setDraft(text);
       return;
     }
 
-    setDraft("");
+    setMessagesByBooking((prev) => ({
+      ...prev,
+      [selectedBooking.id]: (prev[selectedBooking.id] ?? [])
+        .filter((m) => m.id !== optimisticId)
+        .concat({
+          id: data.id,
+          sender_id: data.sender_id,
+          text: data.text,
+          created_at: data.created_at,
+        }),
+    }));
   };
 
   return (
