@@ -236,6 +236,42 @@ function hasTimeConflict(
   });
 }
 
+function isWithinWindow(
+  bookingDate: string,
+  startTime: string,
+  durationHours: number,
+  windowStart: string,
+  windowEnd: string
+) {
+  const candidateStart = combineDateAndTime(bookingDate, startTime);
+  const candidateEnd = new Date(
+    candidateStart.getTime() + durationHours * 60 * 60 * 1000
+  );
+  const allowedStart = combineDateAndTime(bookingDate, windowStart);
+  const allowedEnd = combineDateAndTime(bookingDate, windowEnd);
+
+  return candidateStart >= allowedStart && candidateEnd <= allowedEnd;
+}
+
+function bookingMatchesAnyAvailabilityWindow(
+  bookingDate: string,
+  startTime: string,
+  durationHours: number,
+  windows: SpotTimeWindow[]
+) {
+  const matchingWindows = windows.filter((w) => matchesRepeatRule(w, bookingDate));
+
+  return matchingWindows.some((w) =>
+    isWithinWindow(
+      bookingDate,
+      startTime,
+      durationHours,
+      w.start_time,
+      w.end_time
+    )
+  );
+}
+
 const MOCK_MESSAGES = [
   { from: "Alex", side: "them", text: "Hi! What time are you arriving?" },
   { from: "You", side: "me", text: "Around 9:15 a.m. Is the driveway entrance on the left?" },
@@ -807,7 +843,7 @@ function SpotDetail({
         );
         const windowEnd = combineDateAndTime(bookingDate, end);
 
-        return candidateEnd <= windowEnd;
+        return candidateEnd <= windowEnd;c
       });
     });
 
@@ -817,6 +853,8 @@ function SpotDetail({
   const subtotal = spot.priceHour * durationHours;
   const tax = subtotal * (TAX.gst + TAX.qst);
   const total = subtotal + tax;
+  const isOwnSpot = !!user && !!spot.owner_id && user.id === spot.owner_id;
+  const isSpotInactive = spot.is_active === false;
 
   useEffect(() => {
     if (timeSlots.length === 0) {
@@ -876,21 +914,32 @@ function SpotDetail({
     ? new Date(selectedStartAt.getTime() + durationHours * 60 * 60 * 1000)
     : null;
 
+  const selectedSlotOutsideAvailability =
+    !bookingStartTime ||
+    !bookingMatchesAnyAvailabilityWindow(
+      bookingDate,
+      bookingStartTime,
+      durationHours,
+      timeWindows
+    );
+
   const selectedSlotUnavailable =
     !selectedStartAt ||
     !selectedEndAt ||
+    selectedSlotOutsideAvailability ||
     hasTimeConflict(selectedStartAt, selectedEndAt, spotBookings);
 
   const handleBookNow = () => {
     if (!hasAvailability || !bookingStartTime || !selectedStartAt) {
       return;
     }
+
     if (!user) {
       onRequireLogin();
       return;
     }
 
-    if (selectedSlotUnavailable) {
+    if (isOwnSpot || isSpotInactive || selectedSlotUnavailable) {
       return;
     }
 
@@ -1061,6 +1110,8 @@ function SpotDetail({
                   ? "Checking availability..."
                   : !hasAvailability
                   ? "This spot is unavailable on that day."
+                  : selectedSlotOutsideAvailability
+                  ? "That time is outside the listed availability."
                   : selectedSlotUnavailable
                   ? "That time is already booked."
                   : selectedStartAt
@@ -1070,16 +1121,30 @@ function SpotDetail({
             </div>
 
             <button
-              disabled={loadingAvailability || selectedSlotUnavailable}
+              disabled={
+                loadingAvailability ||
+                selectedSlotUnavailable ||
+                isOwnSpot ||
+                isSpotInactive
+              }
               onClick={handleBookNow}
               className={cx(
                 "w-full px-4 py-3 rounded-2xl text-sm font-medium",
-                !loadingAvailability && !selectedSlotUnavailable
+                !loadingAvailability &&
+                  !selectedSlotUnavailable &&
+                  !isOwnSpot &&
+                  !isSpotInactive
                   ? "bg-zinc-900 text-white hover:bg-zinc-800"
                   : "bg-zinc-200 text-zinc-500 cursor-not-allowed"
               )}
             >
-              {user ? "Continue to confirm" : "Log in to book"}
+              {!user
+                ? "Log in to book"
+                : isOwnSpot
+                ? "You cannot book your own listing"
+                : isSpotInactive
+                ? "This listing is inactive"
+                : "Continue to confirm"}
             </button>
           </div>
 
@@ -3476,6 +3541,64 @@ export default function App() {
     const endAt = new Date(
       new Date(p.startAt).getTime() + p.durationHours * 60 * 60 * 1000
     );
+
+    const { data: latestSpot, error: latestSpotError } = await supabase
+      .from("spots")
+      .select("id, owner_id, is_active")
+      .eq("id", p.spot.id)
+      .maybeSingle();
+
+    if (latestSpotError || !latestSpot) {
+      console.error("Spot reload error:", latestSpotError);
+      setToast("Could not verify listing");
+      setTimeout(() => setToast(null), 2200);
+      return;
+    }
+
+    if (latestSpot.is_active === false) {
+      setCheckoutOpen(false);
+      setCheckoutPayload(null);
+      setToast("This listing is no longer active");
+      setTimeout(() => setToast(null), 2200);
+      return;
+    }
+
+    if (latestSpot.owner_id === user.id) {
+      setCheckoutOpen(false);
+      setCheckoutPayload(null);
+      setToast("You cannot book your own listing");
+      setTimeout(() => setToast(null), 2200);
+      return;
+    }
+
+    const { data: windows, error: windowsError } = await supabase
+      .from("spot_time_windows")
+      .select("*")
+      .eq("spot_id", p.spot.id);
+
+    if (windowsError) {
+      console.error("Availability reload error:", windowsError);
+      setToast("Could not verify availability");
+      setTimeout(() => setToast(null), 2200);
+      return;
+    }
+
+    const safeWindows = (windows || []) as SpotTimeWindow[];
+
+    const stillAvailableByRule = bookingMatchesAnyAvailabilityWindow(
+      p.bookingDate,
+      p.bookingStartTime,
+      p.durationHours,
+      safeWindows
+    );
+
+    if (!stillAvailableByRule) {
+      setCheckoutOpen(false);
+      setCheckoutPayload(null);
+      setToast("That time is no longer within the listing availability");
+      setTimeout(() => setToast(null), 2200);
+      return;
+    }
 
     const { data: conflicts, error: conflictError } = await supabase
       .from("bookings")
