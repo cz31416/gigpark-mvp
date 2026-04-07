@@ -3136,24 +3136,59 @@ function LoginPage({
 }: {
   onSuccess: () => void;
 }) {
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [mode, setMode] = useState<"login" | "signup" | "reset">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage("");
+    const handleSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setLoading(true);
+      setMessage("");
 
-    const supabase = createClient();
+      const supabase = createClient();
 
-    try {
-      if (mode === "login") {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
+      try {
+        if (mode === "login") {
+          const { error } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
+
+          if (error) {
+            setMessage(error.message);
+            return;
+          }
+
+          onSuccess();
+          return;
+        }
+
+        if (mode === "signup") {
+          const { error } = await supabase.auth.signUp({
+            email,
+            password,
+          });
+
+          if (error) {
+            setMessage(error.message);
+            return;
+          }
+
+          setMessage("Account created. You can now log in.");
+          setMode("login");
+          setPassword("");
+          return;
+        }
+
+        const redirectTo =
+          typeof window !== "undefined"
+            ? `${window.location.origin}`
+            : undefined;
+
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo,
         });
 
         if (error) {
@@ -3161,38 +3196,30 @@ function LoginPage({
           return;
         }
 
-        onSuccess();
-      } else {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
-
-        if (error) {
-          setMessage(error.message);
-          return;
-        }
-
-        setMessage("Account created. You can now log in.");
+        setMessage("Password reset email sent. Please check your inbox.");
         setMode("login");
-        setPassword("");
+      } catch (err) {
+        console.error("Auth error:", err);
+        setMessage("Something went wrong. Please try again.");
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      console.error("Auth error:", err);
-      setMessage("Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
   return (
     <div className="mx-auto max-w-md px-4 py-10">
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
         <div className="text-2xl font-semibold">
-          {mode === "login" ? "Log in" : "Create account"}
+          {mode === "login"
+            ? "Log in"
+            : mode === "signup"
+            ? "Create account"
+            : "Reset password"}
         </div>
         <div className="mt-2 text-sm text-zinc-600">
-          You need an account to book parking, manage listings, and use GigPark.
+          {mode === "reset"
+            ? "Enter your email and we will send you a password reset link."
+            : "You need an account to book parking, manage listings, and use GigPark."}
         </div>
 
         <form onSubmit={handleSubmit} className="mt-6 grid gap-4">
@@ -3207,16 +3234,18 @@ function LoginPage({
             />
           </label>
 
-          <label className="grid gap-1">
-            <span className="text-xs text-zinc-500">Password</span>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-            />
-          </label>
+          {mode !== "reset" && (
+            <label className="grid gap-1">
+              <span className="text-xs text-zinc-500">Password</span>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+              />
+            </label>
+          )}
 
           <button
             type="submit"
@@ -3227,7 +3256,9 @@ function LoginPage({
               ? "Please wait..."
               : mode === "login"
               ? "Log in"
-              : "Create account"}
+              : mode === "signup"
+              ? "Create account"
+              : "Send reset link"}
           </button>
         </form>
 
@@ -3237,18 +3268,60 @@ function LoginPage({
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={() => {
-            setMessage("");
-            setMode(mode === "login" ? "signup" : "login");
-          }}
-          className="mt-4 text-sm text-zinc-600 underline"
-        >
-          {mode === "login"
-            ? "Need an account? Sign up"
-            : "Already have an account? Log in"}
-        </button>
+        <div className="mt-4 flex flex-col gap-2">
+          {mode === "login" && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setMessage("");
+                  setMode("signup");
+                }}
+                className="text-left text-sm text-zinc-600 underline"
+              >
+                Need an account? Sign up
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMessage("");
+                  setPassword("");
+                  setMode("reset");
+                }}
+                className="text-left text-sm text-zinc-600 underline"
+              >
+                Forgot password?
+              </button>
+            </>
+          )}
+
+          {mode === "signup" && (
+            <button
+              type="button"
+              onClick={() => {
+                setMessage("");
+                setMode("login");
+              }}
+              className="text-left text-sm text-zinc-600 underline"
+            >
+              Already have an account? Log in
+            </button>
+          )}
+
+          {mode === "reset" && (
+            <button
+              type="button"
+              onClick={() => {
+                setMessage("");
+                setMode("login");
+              }}
+              className="text-left text-sm text-zinc-600 underline"
+            >
+              Back to log in
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
