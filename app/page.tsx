@@ -115,6 +115,16 @@ type AvailabilityRuleRow = {
   repeat: "none" | "daily" | "weekly" | "monthly" | "yearly";
 };
 
+type ReviewRow = {
+  id: string;
+  booking_id: string;
+  reviewer_id: string;
+  reviewee_id: string;
+  rating: number;
+  comment: string | null;
+  created_at: string;
+};
+
 function nextOccurrence(dayKey: keyof typeof DAY_TO_JS, hhmm: string) {
   // returns Date for next occurrence of dayKey at hh:mm (local)
   const now = new Date();
@@ -1239,6 +1249,148 @@ function CheckoutModal({
   );
 }
 
+function ReviewModal({
+  open,
+  booking,
+  onClose,
+  onSubmitted,
+}: {
+  open: boolean;
+  booking: Booking | null;
+  onClose: () => void;
+  onSubmitted: () => Promise<void> | void;
+}) {
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setRating(5);
+      setComment("");
+      setSaving(false);
+      setErrorMsg("");
+    }
+  }, [open, booking?.id]);
+
+  if (!open || !booking) return null;
+
+  const submitReview = async () => {
+    setSaving(true);
+    setErrorMsg("");
+
+    try {
+      const supabase = createClient();
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        setErrorMsg("Please log in again.");
+        return;
+      }
+
+      const { data: latestSpot, error: spotError } = await supabase
+        .from("spots")
+        .select("owner_id")
+        .eq("id", booking.spot.id)
+        .maybeSingle();
+
+      if (spotError || !latestSpot?.owner_id) {
+        setErrorMsg("Could not identify the host for this booking.");
+        return;
+      }
+
+      const { error } = await supabase.from("reviews").insert({
+        booking_id: booking.id,
+        reviewer_id: user.id,
+        reviewee_id: latestSpot.owner_id,
+        rating,
+        comment: comment.trim() || null,
+      });
+
+      if (error) {
+        setErrorMsg(error.message || "Failed to submit review.");
+        return;
+      }
+
+      await onSubmitted();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+      <div className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-lg font-semibold">Leave a review</div>
+            <div className="text-sm text-zinc-600">{booking.spot.title}</div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-sm text-zinc-600 hover:text-zinc-900"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-4">
+          <div>
+            <div className="mb-2 text-xs text-zinc-500">Rating</div>
+            <div className="flex gap-2">
+              {[1, 2, 3, 4, 5].map((value) => (
+                <button
+                  key={value}
+                  onClick={() => setRating(value)}
+                  className={cx(
+                    "rounded-xl px-3 py-2 text-sm font-medium",
+                    rating === value
+                      ? "bg-zinc-900 text-white"
+                      : "bg-zinc-100 text-zinc-700"
+                  )}
+                >
+                  {value}★
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <label className="grid gap-1">
+            <span className="text-xs text-zinc-500">Comment</span>
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              rows={4}
+              placeholder="Describe your experience"
+              className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+            />
+          </label>
+
+          {errorMsg && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              {errorMsg}
+            </div>
+          )}
+
+          <button
+            onClick={submitReview}
+            disabled={saving}
+            className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:bg-zinc-300"
+          >
+            {saving ? "Submitting..." : "Submit review"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SearchPage({
   spots,
   onOpenSpot,
@@ -1953,13 +2105,11 @@ function HostPage({
 function ChatPage({
   user,
   bookings,
-  onProposeDeal,
   onOpenBooking,
   onRequireLogin,
 }: {
   user: User | null;
   bookings: Booking[];
-  onProposeDeal: (amount: number) => void;
   onOpenBooking: (b: Booking) => void;
   onRequireLogin: () => void;
 }) {
@@ -1970,6 +2120,8 @@ function ChatPage({
   >({});
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [chatError, setChatError] = useState("");
+  const [dealAmount, setDealAmount] = useState("");
+  const [showDealBox, setShowDealBox] = useState(false);
 
   useEffect(() => {
     if (bookings.length === 0) {
@@ -1982,6 +2134,13 @@ function ChatPage({
       return bookings[0].id;
     });
   }, [bookings]);
+
+  useEffect(() => {
+    setShowDealBox(false);
+    setDealAmount("");
+    setChatError("");
+    setDraft("");
+  }, [selectedBookingId]);
 
   useEffect(() => {
     if (!user || bookings.length === 0) return;
@@ -2079,9 +2238,74 @@ function ChatPage({
   const messages = messagesByBooking[selectedBooking.id] ?? [];
   const hostName = selectedBooking.spot.host.name || "Host";
 
+  const sendDealProposal = async () => {
+    const amount = Number(dealAmount);
+
+    if (!user || !Number.isFinite(amount) || amount <= 0) {
+      setChatError("Enter a valid proposed hourly price.");
+      return;
+    }
+
+    setChatError("");
+
+    const text = `Deal proposal: ${money(amount)}/hr`;
+    const supabase = createClient();
+
+    const optimisticId = `temp-deal-${Date.now()}`;
+    const optimisticMessage = {
+      id: optimisticId,
+      sender_id: user.id,
+      text,
+      created_at: new Date().toISOString(),
+    };
+
+    setMessagesByBooking((prev) => ({
+      ...prev,
+      [selectedBooking.id]: [...(prev[selectedBooking.id] ?? []), optimisticMessage],
+    }));
+
+    setDealAmount("");
+    setShowDealBox(false);
+
+    const { data, error } = await supabase
+      .from("messages")
+      .insert({
+        booking_id: selectedBooking.id,
+        sender_id: user.id,
+        text,
+      })
+      .select("id, booking_id, sender_id, text, created_at")
+      .single();
+
+    if (error) {
+      setMessagesByBooking((prev) => ({
+        ...prev,
+        [selectedBooking.id]: (prev[selectedBooking.id] ?? []).filter(
+          (m) => m.id !== optimisticId
+        ),
+      }));
+      setChatError(error.message || "Failed to send the deal proposal.");
+      return;
+    }
+
+    setMessagesByBooking((prev) => ({
+      ...prev,
+      [selectedBooking.id]: (prev[selectedBooking.id] ?? [])
+        .filter((m) => m.id !== optimisticId)
+        .concat({
+          id: data.id,
+          sender_id: data.sender_id,
+          text: data.text,
+          created_at: data.created_at,
+        }),
+    }));
+  };
+
   const send = async () => {
     const text = draft.trim();
     if (!text || !user) return;
+
+    setChatError("");
 
     const supabase = createClient();
 
@@ -2121,6 +2345,7 @@ function ChatPage({
       }));
 
       setDraft(text);
+      setChatError(error.message || "Failed to send message.");
       return;
     }
 
@@ -2191,7 +2416,11 @@ function ChatPage({
                 View booking
               </button>
               <button
-                onClick={() => onProposeDeal(selectedBooking.spot.priceHour)}
+                onClick={() => {
+                  setChatError("");
+                  setShowDealBox((prev) => !prev);
+                  setDealAmount(String(selectedBooking.spot.priceHour));
+                }}
                 className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800"
               >
                 Propose deal
@@ -2202,6 +2431,31 @@ function ChatPage({
           <div className="border-b border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
             Booking status: <span className="font-medium capitalize">{selectedBooking.status}</span>
           </div>
+          
+          {showDealBox && (
+            <div className="border-b border-zinc-200 bg-white p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  type="number"
+                  min={1}
+                  step="0.5"
+                  value={dealAmount}
+                  onChange={(e) => setDealAmount(e.target.value)}
+                  placeholder="Proposed hourly price"
+                  className="flex-1 rounded-2xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                />
+                <button
+                  onClick={sendDealProposal}
+                  className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm text-white hover:bg-zinc-800"
+                >
+                  Send proposal
+                </button>
+              </div>
+              <div className="mt-2 text-xs text-zinc-500">
+                This sends a price proposal in the chat for this booking.
+              </div>
+            </div>
+          )}
 
           <div className="h-[360px] space-y-2 overflow-auto p-4">
             {loadingMessages ? (
@@ -2230,6 +2484,12 @@ function ChatPage({
           </div>
 
           <div className="border-t border-zinc-200 p-4">
+            {chatError && (
+              <div className="mb-3 text-sm text-rose-600">
+                {chatError}
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <input
                 value={draft}
@@ -2515,10 +2775,10 @@ function BookingCard({
 
         <button
           onClick={() => onReview(b)}
-          disabled={!b.isPast && b.status === "confirmed"}
+          disabled={!b.isPast || (b.status !== "confirmed" && b.status !== "completed")}
           className={cx(
             "px-3 py-2 rounded-xl text-xs font-medium inline-flex items-center gap-2",
-            b.isPast && b.status === "confirmed"
+            b.isPast && (b.status === "confirmed" || b.status === "completed")
               ? "bg-zinc-100 text-zinc-800 hover:bg-zinc-200"
               : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
           )}
@@ -3426,6 +3686,8 @@ function LoginPage({
 }
 
 export default function App() {
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewBooking, setReviewBooking] = useState<Booking | null>(null);
   const [postLoginView, setPostLoginView] = useState<View>("host");
   const [user, setUser] = useState<User | null>(null);
   const [spots, setSpots] = useState<Spot[]>([]);
@@ -4043,31 +4305,6 @@ export default function App() {
     setTimeout(() => setToast(null), 2800);
   };
 
-  const proposeDeal = (amount: number) => {
-    const spot = spots[0];
-    if (!spot) return;
-
-    const bookingDate = new Date().toISOString().slice(0, 10);
-    const bookingStartTime = "09:00";
-    const startAt = combineDateAndTime(bookingDate, bookingStartTime);
-
-    const subtotal = amount;
-    const tax = subtotal * (TAX.gst + TAX.qst);
-    const total = subtotal + tax;
-
-    setCheckoutPayload({
-      spot,
-      bookingDate,
-      bookingStartTime,
-      durationHours: 1,
-      subtotal,
-      tax,
-      total,
-      startAt,
-    });
-    setCheckoutOpen(true);
-  };
-
   const cancelBooking = async (b: Booking) => {
     if (!user) return;
 
@@ -4102,9 +4339,16 @@ export default function App() {
     setView("chat");
   };
 
-  const leaveReview = (_b?: Booking) => {
-    setToast("Review submitted (demo)");
-    setTimeout(() => setToast(null), 2200);
+  const leaveReview = (b?: Booking) => {
+    if (!user) {
+      requireLoginFor("bookings");
+      return;
+    }
+
+    if (!b) return;
+
+    setReviewBooking(b);
+    setReviewOpen(true);
   };
 
   const openLogin = () => {
@@ -4227,7 +4471,6 @@ export default function App() {
         <ChatPage
           user={user}
           bookings={chatBookings}
-          onProposeDeal={proposeDeal}
           onOpenBooking={(b) => {
             setToast(`Opening booking: ${b.spot.title}`);
             setTimeout(() => setToast(null), 1800);
@@ -4288,6 +4531,19 @@ export default function App() {
           setCheckoutPayload(null);
         }}
         onConfirm={confirmPayment}
+      />
+
+      <ReviewModal
+        open={reviewOpen}
+        booking={reviewBooking}
+        onClose={() => {
+          setReviewOpen(false);
+          setReviewBooking(null);
+        }}
+        onSubmitted={async () => {
+          setToast("Review submitted");
+          setTimeout(() => setToast(null), 2200);
+        }}
       />
 
       {toast && (
