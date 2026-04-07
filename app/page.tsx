@@ -2544,11 +2544,13 @@ function BookingsPage({
 function MyListingsPage({
   listings,
   user,
+  hostBookings,
   onRefresh,
   onToast,
 }: {
   listings: Spot[];
   user: User | null;
+  hostBookings: (Booking & { renterName?: string; renterEmail?: string })[];
   onRefresh: () => Promise<void> | void;
   onToast: (message: string) => void;
 }) {
@@ -2903,9 +2905,71 @@ function MyListingsPage({
         )}
       </div>
 
-      {editingSpot && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <div className="mt-10">
+              <div className="text-lg font-semibold">Incoming bookings</div>
+              <div className="mt-1 text-sm text-zinc-600">
+                Bookings made on your listings
+              </div>
+
+              <div className="mt-4 grid gap-3">
+                {hostBookings.length === 0 ? (
+                  <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">
+                    No incoming bookings yet.
+                  </div>
+                ) : (
+                  hostBookings.map((b) => {
+                    const startAt =
+                      b.startAt instanceof Date ? b.startAt : new Date(b.startAt);
+
+                    return (
+                      <div
+                        key={b.id}
+                        className="rounded-3xl border border-zinc-200 bg-white p-5"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold truncate">
+                              {b.spot.title}
+                            </div>
+                            <div className="mt-1 text-xs text-zinc-600">
+                              {b.spot.area} • {fmtDateTime(startAt)} • {b.durationHours}h
+                            </div>
+                            <div className="mt-2 text-xs text-zinc-600">
+                              Renter: {b.renterName || "Unknown"}
+                              {b.renterEmail ? ` • ${b.renterEmail}` : ""}
+                            </div>
+                          </div>
+
+                          <Badge
+                            tone={
+                              b.status === "cancelled"
+                                ? "Bad"
+                                : b.status === "completed"
+                                ? "Neutral"
+                                : "Good"
+                            }
+                          >
+                            {b.status === "cancelled"
+                              ? "Cancelled"
+                              : b.status === "completed"
+                              ? "Completed"
+                              : "Confirmed"}
+                          </Badge>
+                        </div>
+
+                        <div className="mt-3 text-sm text-zinc-700">
+                          Total: <span className="font-semibold">{money(b.total)}</span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {editingSpot && (
+              <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+                <div className="w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-lg font-semibold">Edit listing</div>
@@ -3202,6 +3266,9 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [myListings, setMyListings] = useState<Spot[]>([]);
+  const [hostBookings, setHostBookings] = useState<
+    (Booking & { renterName?: string; renterEmail?: string })[]
+  >([]);
   const [profile, setProfile] = useState({
     full_name: "",
     email: "",
@@ -3221,6 +3288,7 @@ export default function App() {
     setUser(null);
     setBookings([]);
     setMyListings([]);
+    setHostBookings([]);
     setProfile({
       full_name: "",
       email: "",
@@ -3264,6 +3332,21 @@ export default function App() {
     status: "confirmed" | "cancelled" | "completed" | string;
     created_at?: string;
     spots?: SpotRow | SpotRow[] | null;
+  };
+
+  type HostBookingRow = {
+    id: string;
+    renter_id: string;
+    spot_id: string;
+    start_at: string;
+    end_at: string;
+    subtotal: number | string;
+    tax: number | string;
+    total: number | string;
+    status: "confirmed" | "cancelled" | "completed" | string;
+    created_at?: string;
+    spots?: SpotRow | SpotRow[] | null;
+    profiles?: ProfileRow | ProfileRow[] | null;
   };
 
   type ProfileRow = {
@@ -3408,6 +3491,83 @@ export default function App() {
     setBookings(mapped);
   };
 
+  const loadHostBookings = async (currentUser?: User | null) => {
+    const activeUser = currentUser ?? user;
+
+    if (!activeUser) {
+      setHostBookings([]);
+      return;
+    }
+
+    const supabase = createClient();
+
+    const { data, error } = await supabase
+      .from("bookings")
+      .select(`
+        id,
+        renter_id,
+        spot_id,
+        start_at,
+        end_at,
+        subtotal,
+        tax,
+        total,
+        status,
+        created_at,
+        spots (*),
+        profiles!bookings_renter_id_fkey (*)
+      `)
+      .order("start_at", { ascending: false });
+
+    if (error) {
+      console.error("Failed to load host bookings:", error);
+      setToast("Failed to load host bookings");
+      setTimeout(() => setToast(null), 2200);
+      return;
+    }
+
+    const rows = (data || []) as HostBookingRow[];
+
+    const mapped = rows
+      .map((row): (Booking & { renterName?: string; renterEmail?: string }) | null => {
+        const relatedSpot = Array.isArray(row.spots) ? row.spots[0] : row.spots;
+        const relatedProfile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+
+        if (!relatedSpot) return null;
+        if (relatedSpot.owner_id !== activeUser.id) return null;
+
+        return {
+          id: row.id,
+          spot: mapSpotRow(relatedSpot),
+          startAt: row.start_at,
+          durationHours: Math.max(
+            1,
+            Math.round(
+              (new Date(row.end_at).getTime() - new Date(row.start_at).getTime()) /
+                (1000 * 60 * 60)
+            )
+          ),
+          subtotal: Number(row.subtotal),
+          tax: Number(row.tax),
+          total: Number(row.total),
+          status:
+            row.status === "cancelled"
+              ? "cancelled"
+              : row.status === "completed"
+              ? "completed"
+              : "confirmed",
+          renterName: relatedProfile?.full_name ?? "",
+          renterEmail: relatedProfile?.email ?? "",
+        };
+      })
+      .filter(
+        (row): row is Booking & { renterName?: string; renterEmail?: string } =>
+          row !== null
+      );
+
+    setHostBookings(mapped);
+  };
+
   const loadProfile = async (currentUser?: User | null) => {
     const activeUser = currentUser ?? user;
 
@@ -3501,6 +3661,7 @@ export default function App() {
     setUser(user ?? null);
     await loadMyListings(user ?? null);
     await loadBookings(user ?? null);
+    await loadHostBookings(user ?? null);
     await loadProfile(user ?? null);
   };
 
@@ -3514,6 +3675,7 @@ export default function App() {
     setUser(nextUser);
     loadMyListings(nextUser);
     loadBookings(nextUser);
+    loadHostBookings(nextUser);
     loadProfile(nextUser);
   });
 
@@ -3793,9 +3955,11 @@ export default function App() {
         <MyListingsPage
           listings={myListings}
           user={user}
+          hostBookings={hostBookings}
           onRefresh={async () => {
             await loadSpots();
             await loadMyListings(user);
+            await loadHostBookings(user);
           }}
           onToast={(message) => {
             setToast(message);
@@ -3809,6 +3973,7 @@ export default function App() {
           onCreated={async () => {
             await loadSpots();
             await loadMyListings(user);
+            await loadHostBookings(user);
           }}
           user={user}
           onRequireLogin={() => requireLoginFor("host")}
