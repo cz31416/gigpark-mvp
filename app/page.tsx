@@ -101,7 +101,7 @@ type SpotTimeWindow = {
   source_type: "specific" | "recurring";
   day_key: DayKey | null;
   specific_date: string | null;
-  start_date: string | null;
+  start_date: string;
   start_time: string;
   end_time: string;
   repeat_rule: "daily" | "weekly" | "monthly" | "yearly" | null;
@@ -196,10 +196,10 @@ function sameDayOfMonth(a: string, b: string) {
 
 function matchesRepeatRule(rule: SpotTimeWindow, selectedDate: string) {
   if (rule.source_type === "specific") {
-    return rule.specific_date === selectedDate;
+    return (rule.specific_date ?? rule.start_date) === selectedDate;
   }
 
-  if (!rule.start_date || !rule.repeat_rule) return false;
+  if (!rule.repeat_rule) return false;
   if (selectedDate < rule.start_date) return false;
 
   if (rule.repeat_rule === "daily") {
@@ -1577,7 +1577,7 @@ function HostPage({
           spot_id: spotId,
           source_type: isOneTime ? "specific" : "recurring",
           specific_date: isOneTime ? row.date : null,
-          start_date: isOneTime ? null : row.date,
+          start_date: row.date,
           day_key: isOneTime ? null : getDayKeyFromDate(row.date),
           start_time: row.start,
           end_time: row.end,
@@ -2730,7 +2730,7 @@ function MyListingsPage({
           spot_id: editingSpot.id,
           source_type: isOneTime ? "specific" : "recurring",
           specific_date: isOneTime ? row.date : null,
-          start_date: isOneTime ? null : row.date,
+          start_date: row.date,
           day_key: isOneTime ? null : getDayKeyFromDate(row.date),
           start_time: row.start,
           end_time: row.end,
