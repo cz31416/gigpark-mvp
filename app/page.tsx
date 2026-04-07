@@ -507,38 +507,49 @@ function TopNav({
 function Hero({
   onGetParking,
   onEarnMoney,
+  featuredSpot,
+  onOpenFeaturedSpot,
 }: {
   onGetParking: () => void;
   onEarnMoney: () => void;
+  featuredSpot: Spot | null;
+  onOpenFeaturedSpot: () => void;
 }) {
+  const spot = featuredSpot;
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
-      <div className="grid gap-8 md:grid-cols-2 items-center">
+      <div className="grid items-center gap-8 md:grid-cols-2">
         <div>
           <div className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-700">
             <ShieldCheck className="h-4 w-4" />
             Owner-authorized • Neighborhood-first • Simple booking
           </div>
-          <h1 className="mt-4 text-3xl md:text-5xl font-semibold tracking-tight text-zinc-900">
+
+          <h1 className="mt-4 text-3xl font-semibold tracking-tight text-zinc-900 md:text-5xl">
             Park near where you actually need to be.
           </h1>
-          <p className="mt-3 text-zinc-600 leading-relaxed">
+
+          <p className="mt-3 leading-relaxed text-zinc-600">
             GigPark helps residents rent out unused driveways and condo spots so drivers can book reliable parking by the hour, day, or month.
           </p>
+
           <div className="mt-6 flex flex-wrap gap-3">
             <button
               onClick={onGetParking}
-              className="px-5 py-3 rounded-2xl bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800"
+              className="rounded-2xl bg-zinc-900 px-5 py-3 text-sm font-medium text-white hover:bg-zinc-800"
             >
               Get parking
             </button>
+
             <button
               onClick={onEarnMoney}
-              className="px-5 py-3 rounded-2xl bg-white border border-zinc-300 text-zinc-900 text-sm font-medium hover:bg-zinc-50"
+              className="rounded-2xl border border-zinc-300 bg-white px-5 py-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
             >
               Earn money
             </button>
           </div>
+
           <div className="mt-6 grid grid-cols-3 gap-3">
             <div className="rounded-2xl border border-zinc-200 p-3">
               <div className="text-xs text-zinc-500">Average booking</div>
@@ -554,36 +565,56 @@ function Hero({
             </div>
           </div>
         </div>
+
         <div className="relative">
-          <div className="rounded-3xl overflow-hidden border border-zinc-200 shadow-sm">
+          <div className="overflow-hidden rounded-3xl border border-zinc-200 shadow-sm">
             <img
-              src="https://images.unsplash.com/photo-1528920304568-6f1f8a4d52af?auto=format&fit=crop&w=1600&q=60"
-              alt="Street parking"
+              src={spot?.photo || "/placeholder.png"}
+              alt={spot?.title || "Featured parking spot"}
               className="h-[420px] w-full object-cover"
+              onError={(e) => {
+                e.currentTarget.src = "/placeholder.png";
+              }}
             />
           </div>
-          <div className="absolute -bottom-5 left-6 right-6 rounded-3xl bg-white border border-zinc-200 shadow-sm p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold truncate">Driveway Spot — 2 Min to HEC</div>
-                <div className="mt-1 flex items-center gap-2 text-xs text-zinc-600">
-                  <MapPin className="h-3.5 w-3.5" />
-                  <span className="truncate">Côte-des-Neiges</span>
-                  <span className="text-zinc-300">•</span>
-                  <span className="truncate">{money(4)}/hr</span>
+
+          <div className="absolute -bottom-5 left-6 right-6 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+            {spot ? (
+              <>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">{spot.title}</div>
+                    <div className="mt-1 flex items-center gap-2 text-xs text-zinc-600">
+                      <MapPin className="h-3.5 w-3.5" />
+                      <span className="truncate">{spot.area}</span>
+                      <span className="text-zinc-300">•</span>
+                      <span className="truncate">{money(spot.priceHour)}/hr</span>
+                    </div>
+                  </div>
+                  <DifficultyPill level={spot.difficulty} />
                 </div>
+
+                <div className="mt-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs text-zinc-600">
+                    <Star className="h-4 w-4" />
+                    <span>
+                      {spot.host.rating.toFixed(1)} ({spot.host.reviews})
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={onOpenFeaturedSpot}
+                    className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800"
+                  >
+                    Book now
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="text-sm text-zinc-600">
+                No featured spot available yet.
               </div>
-              <DifficultyPill level="Easy" />
-            </div>
-            <div className="mt-3 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs text-zinc-600">
-                <Star className="h-4 w-4" />
-                <span>4.8 (31)</span>
-              </div>
-              <button className="text-xs font-medium px-3 py-2 rounded-xl bg-zinc-900 text-white hover:bg-zinc-800">
-                Book now
-              </button>
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -3729,6 +3760,11 @@ export default function App() {
       });
     }, [bookings, hostBookings]);
 
+    const featuredSpot = useMemo(() => {
+      if (spots.length === 0) return null;
+      return spots.find((spot) => !!spot.photo) ?? spots[0];
+    }, [spots]);
+
   const requireLoginFor = (targetView: View) => {
     setPostLoginView(targetView);
     setView("login");
@@ -4386,6 +4422,14 @@ export default function App() {
           <Hero
             onGetParking={() => setView("search")}
             onEarnMoney={() => (user ? setView("host") : requireLoginFor("host"))}
+            featuredSpot={featuredSpot}
+            onOpenFeaturedSpot={() => {
+              if (featuredSpot) {
+                openSpot(featuredSpot);
+              } else {
+                setView("search");
+              }
+            }}
           />
           <div className="mx-auto max-w-6xl px-4 pb-12">
             <div className="grid gap-4 md:grid-cols-3">
