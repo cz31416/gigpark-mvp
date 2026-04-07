@@ -843,7 +843,7 @@ function SpotDetail({
         );
         const windowEnd = combineDateAndTime(bookingDate, end);
 
-        return candidateEnd <= windowEnd;c
+        return candidateEnd <= windowEnd;
       });
     });
 
