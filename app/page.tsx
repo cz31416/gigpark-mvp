@@ -98,11 +98,13 @@ type CheckoutPayload = {
 type SpotTimeWindow = {
   id: string;
   spot_id: string;
-  start_date: string;
+  source_type: "specific" | "recurring";
+  day_key: DayKey | null;
+  specific_date: string | null;
+  start_date: string | null;
   start_time: string;
   end_time: string;
-  repeat_rule: "none" | "daily" | "weekly" | "monthly" | "yearly";
-  source_type: "specific" | "recurring";
+  repeat_rule: "daily" | "weekly" | "monthly" | "yearly" | null;
   created_at?: string;
 };
 
@@ -193,18 +195,19 @@ function sameDayOfMonth(a: string, b: string) {
 }
 
 function matchesRepeatRule(rule: SpotTimeWindow, selectedDate: string) {
-  if (selectedDate < rule.start_date) return false;
-
-  if (rule.repeat_rule === "none") {
-    return selectedDate === rule.start_date;
+  if (rule.source_type === "specific") {
+    return rule.specific_date === selectedDate;
   }
 
+  if (!rule.start_date || !rule.repeat_rule) return false;
+  if (selectedDate < rule.start_date) return false;
+
   if (rule.repeat_rule === "daily") {
-    return selectedDate >= rule.start_date;
+    return true;
   }
 
   if (rule.repeat_rule === "weekly") {
-    return getDayKeyFromDate(selectedDate) === getDayKeyFromDate(rule.start_date);
+    return rule.day_key === getDayKeyFromDate(selectedDate);
   }
 
   if (rule.repeat_rule === "monthly") {
@@ -1567,14 +1570,20 @@ function HostPage({
 
       const spotId = insertedSpot.id;
 
-      const timeWindowRows = availabilityRules.map((row) => ({
-        spot_id: spotId,
-        start_date: row.date,
-        start_time: row.start,
-        end_time: row.end,
-        repeat_rule: row.repeat,
-        source_type: row.repeat === "none" ? "specific" : "recurring",
-      }));
+      const timeWindowRows = availabilityRules.map((row) => {
+        const isOneTime = row.repeat === "none";
+
+        return {
+          spot_id: spotId,
+          source_type: isOneTime ? "specific" : "recurring",
+          specific_date: isOneTime ? row.date : null,
+          start_date: isOneTime ? null : row.date,
+          day_key: isOneTime ? null : getDayKeyFromDate(row.date),
+          start_time: row.start,
+          end_time: row.end,
+          repeat_rule: isOneTime ? null : row.repeat,
+        };
+      });
 
       if (timeWindowRows.length > 0) {
         const { error: windowError } = await supabase
@@ -2525,10 +2534,14 @@ function MyListingsPage({
       const windows = (windowsData || []) as SpotTimeWindow[];
       setEditAvailabilityRules(
         windows.map((w) => ({
-          date: w.start_date,
+          date: w.source_type === "specific"
+            ? (w.specific_date ?? "")
+            : (w.start_date ?? ""),
           start: w.start_time,
           end: w.end_time,
-          repeat: w.repeat_rule,
+          repeat: w.source_type === "specific"
+            ? "none"
+            : ((w.repeat_rule ?? "weekly") as AvailabilityRuleRow["repeat"]),
         }))
       );
     }
@@ -2710,14 +2723,20 @@ function MyListingsPage({
         return;
       }
 
-      const replacementRows = editAvailabilityRules.map((row) => ({
-        spot_id: editingSpot.id,
-        start_date: row.date,
-        start_time: row.start,
-        end_time: row.end,
-        repeat_rule: row.repeat,
-        source_type: row.repeat === "none" ? "specific" : "recurring",
-      }));
+      const replacementRows = editAvailabilityRules.map((row) => {
+        const isOneTime = row.repeat === "none";
+
+        return {
+          spot_id: editingSpot.id,
+          source_type: isOneTime ? "specific" : "recurring",
+          specific_date: isOneTime ? row.date : null,
+          start_date: isOneTime ? null : row.date,
+          day_key: isOneTime ? null : getDayKeyFromDate(row.date),
+          start_time: row.start,
+          end_time: row.end,
+          repeat_rule: isOneTime ? null : row.repeat,
+        };
+      });
 
       if (replacementRows.length > 0) {
         const { error: insertWindowsError } = await supabase
