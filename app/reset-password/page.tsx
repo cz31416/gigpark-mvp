@@ -13,23 +13,18 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     const supabase = createClient();
 
-    const initRecovery = async () => {
+    const init = async () => {
         try {
         const url = new URL(window.location.href);
+
+        // 1. Handle PKCE flow (MOST IMPORTANT)
         const code = url.searchParams.get("code");
-        const typeFromQuery = url.searchParams.get("type");
-
-        const hashParams = new URLSearchParams(
-            window.location.hash.replace(/^#/, "")
-        );
-        const typeFromHash = hashParams.get("type");
-
         if (code) {
             const { error } = await supabase.auth.exchangeCodeForSession(code);
 
             if (error) {
-            console.error("exchangeCodeForSession error:", error);
-            setMessage("This password reset link is invalid or has expired.");
+            console.error("exchange error:", error);
+            setMessage("This password reset link is invalid or expired.");
             return;
             }
 
@@ -37,11 +32,18 @@ export default function ResetPasswordPage() {
             return;
         }
 
-        if (typeFromHash === "recovery" || typeFromQuery === "recovery") {
+        // 2. Fallback: hash-based recovery (older flow)
+        const hashParams = new URLSearchParams(
+            window.location.hash.replace(/^#/, "")
+        );
+        const type = hashParams.get("type");
+
+        if (type === "recovery") {
             setReady(true);
             return;
         }
 
+        // 3. Fallback: existing session
         const {
             data: { session },
         } = await supabase.auth.getSession();
@@ -51,15 +53,16 @@ export default function ResetPasswordPage() {
             return;
         }
 
-        setMessage("This password reset link is invalid or has expired.");
+        setMessage("This password reset link is invalid or expired.");
         } catch (err) {
-        console.error("Recovery init error:", err);
-        setMessage("This password reset link is invalid or has expired.");
+        console.error(err);
+        setMessage("This password reset link is invalid or expired.");
         }
     };
 
-    initRecovery();
+    init();
 
+    // also listen for recovery event (important)
     const {
         data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
