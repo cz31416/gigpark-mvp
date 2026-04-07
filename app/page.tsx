@@ -386,16 +386,6 @@ function TopNav({
                     return;
                   }
 
-                  if (t.id === "my-listings" && user) {
-                    loadMyListings(user);
-                    loadHostBookings(user);
-                  }
-
-                  if (t.id === "chat" && user) {
-                    loadBookings(user);
-                    loadHostBookings(user);
-                  }
-
                   setView(t.id);
                 }}
                 className={cx(
