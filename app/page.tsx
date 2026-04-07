@@ -104,7 +104,7 @@ type SpotTimeWindow = {
   start_date: string;
   start_time: string;
   end_time: string;
-  repeat_rule: "daily" | "weekly" | "monthly" | "yearly" | null;
+  repeat_rule: "none" | "daily" | "weekly" | "monthly" | "yearly";
   created_at?: string;
 };
 
@@ -195,11 +195,10 @@ function sameDayOfMonth(a: string, b: string) {
 }
 
 function matchesRepeatRule(rule: SpotTimeWindow, selectedDate: string) {
-  if (rule.source_type === "specific") {
+  if (rule.source_type === "specific" || rule.repeat_rule === "none") {
     return (rule.specific_date ?? rule.start_date) === selectedDate;
   }
 
-  if (!rule.repeat_rule) return false;
   if (selectedDate < rule.start_date) return false;
 
   if (rule.repeat_rule === "daily") {
@@ -1581,7 +1580,7 @@ function HostPage({
           day_key: isOneTime ? null : getDayKeyFromDate(row.date),
           start_time: row.start,
           end_time: row.end,
-          repeat_rule: isOneTime ? null : row.repeat,
+          repeat_rule: row.repeat,
         };
       });
 
@@ -2734,7 +2733,7 @@ function MyListingsPage({
           day_key: isOneTime ? null : getDayKeyFromDate(row.date),
           start_time: row.start,
           end_time: row.end,
-          repeat_rule: isOneTime ? null : row.repeat,
+          repeat_rule: row.repeat,
         };
       });
 
